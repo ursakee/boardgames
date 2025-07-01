@@ -6,13 +6,16 @@ import { LogOut } from "lucide-react";
 
 const TicTacToeBoard: React.FC<Omit<GameBoardComponentProps<TicTacToeGameState>, "gameId" | "playerSymbol">> = ({
   gameState,
+  statusMessage, // Now a prop
+  isGameOver, // Now a prop
   onMakeMove,
   onLeaveGame,
 }) => {
   const { gameId, playerSymbol, players } = useGameStore();
 
   const handleSquareClick = (index: number) => {
-    if (gameState.isNext === playerSymbol && !gameState.board[index] && !gameState.winner) {
+    // The core check remains, ensuring the current player can make a move
+    if (gameState.isNext === playerSymbol && !gameState.board[index] && !isGameOver) {
       onMakeMove(index);
     }
   };
@@ -20,13 +23,6 @@ const TicTacToeBoard: React.FC<Omit<GameBoardComponentProps<TicTacToeGameState>,
   const getPlayerName = (symbol: "X" | "O" | null) => {
     if (!symbol) return "";
     return players.find((p) => p.id === symbol)?.username || `Player ${symbol}`;
-  };
-
-  const statusMessage = () => {
-    if (gameState.winner) {
-      return gameState.winner === "draw" ? "It's a Draw!" : `${getPlayerName(gameState.winner)} wins!`;
-    }
-    return `${getPlayerName(gameState.isNext)}'s Turn`;
   };
 
   return (
@@ -39,32 +35,31 @@ const TicTacToeBoard: React.FC<Omit<GameBoardComponentProps<TicTacToeGameState>,
         <p className="text-lg text-white">
           You are:{" "}
           <span className="font-bold text-2xl">
-            {getPlayerName(playerSymbol)} ({playerSymbol})
+            {getPlayerName(playerSymbol as "X" | "O")} ({playerSymbol})
           </span>
         </p>
         <p
           className={`text-lg font-semibold px-3 py-1 rounded-md ${
-            gameState.winner ? "bg-yellow-500 text-black" : "bg-slate-600 text-white"
+            isGameOver ? "bg-yellow-500 text-black" : "bg-slate-600 text-white"
           }`}
         >
-          {statusMessage()}
+          {statusMessage}
         </p>
       </div>
       <div className="grid grid-cols-3 gap-3 bg-slate-900/50 p-3 rounded-md aspect-square">
-        {gameState.board.map((value: any, index: number) => (
+        {gameState.board.map((value, index) => (
           <button
             key={index}
             onClick={() => handleSquareClick(index)}
             className={`w-full h-full flex items-center justify-center text-6xl font-bold rounded-md transition duration-150
               ${value === "X" ? "text-red-400" : "text-blue-400"}
               ${
-                gameState.isNext === playerSymbol && !value && !gameState.winner
+                gameState.isNext === playerSymbol && !value && !isGameOver
                   ? "cursor-pointer bg-slate-700 hover:bg-slate-600"
                   : "bg-slate-800 cursor-not-allowed"
               }`}
-            disabled={gameState.isNext !== playerSymbol || !!value || !!gameState.winner}
+            disabled={gameState.isNext !== playerSymbol || !!value || isGameOver}
           >
-            {/* FIX: Use a non-breaking space to prevent the button from resizing */}
             {value || "\u00A0"}
           </button>
         ))}

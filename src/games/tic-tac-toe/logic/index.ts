@@ -1,41 +1,34 @@
-import type { PlayerSymbol } from "../../../types"; // Import the generic PlayerSymbol
+import type { Player } from "../../../store/gameStore";
+import type { PlayerSymbol } from "../../../types";
 import type { TicTacToeGameState, TicTacToeValue } from "../types";
 
-// Helper function to check if a symbol is a valid TicTacToeValue
 function isValidTicTacToeValue(symbol: string): symbol is TicTacToeValue {
   return symbol === "X" || symbol === "O";
 }
 
-// The initial state for any new Tic-Tac-Toe game
 export const getInitialState = (): TicTacToeGameState => ({
   board: Array(9).fill(null),
   isNext: "X",
   winner: null,
-  status: "Waiting for player...",
 });
 
-// This function calculates the result of a move
 export const calculateMove = (
   currentState: TicTacToeGameState,
   moveIndex: number,
-  playerSymbol: PlayerSymbol // Accept the generic `string` type
+  playerSymbol: PlayerSymbol
 ): TicTacToeGameState => {
-  // TYPE GUARD: Ensure the provided symbol is valid for this specific game's logic.
-  // This makes the function compatible with the generic registry while keeping internal logic safe.
   if (!isValidTicTacToeValue(playerSymbol)) {
-    return currentState; // Not a valid symbol for this game
+    return currentState;
   }
 
-  // From this point on, TypeScript knows `playerSymbol` is "X" | "O"
   if (currentState.board[moveIndex] || currentState.winner || currentState.isNext !== playerSymbol) {
-    return currentState; // Invalid move, return current state
+    return currentState;
   }
 
   const newBoard = [...currentState.board];
   newBoard[moveIndex] = playerSymbol;
   const newIsNext = playerSymbol === "X" ? "O" : "X";
 
-  // --- The rest of the function remains the same ---
   const lines = [
     [0, 1, 2],
     [3, 4, 5],
@@ -60,17 +53,26 @@ export const calculateMove = (
     winner = "draw";
   }
 
-  let status = "";
-  if (winner) {
-    status = winner === "draw" ? "It's a Draw!" : `Winner is ${winner}!`;
-  } else {
-    status = `Next player: ${newIsNext}`;
-  }
-
   return {
     board: newBoard,
     isNext: newIsNext,
     winner,
-    status,
   };
+};
+
+// NEW: Required by the GameRegistryEntry contract
+export const isGameOver = (gameState: TicTacToeGameState): boolean => {
+  return gameState.winner !== null;
+};
+
+// NEW: Required by the GameRegistryEntry contract
+export const getGameStatus = (gameState: TicTacToeGameState, players: Player[]): string => {
+  const getPlayerName = (symbol: TicTacToeValue) => {
+    return players.find((p) => p.id === symbol)?.username || `Player ${symbol}`;
+  };
+
+  if (gameState.winner) {
+    return gameState.winner === "draw" ? "It's a Draw!" : `${getPlayerName(gameState.winner)} wins!`;
+  }
+  return `${getPlayerName(gameState.isNext)}'s Turn`;
 };

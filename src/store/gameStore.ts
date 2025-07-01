@@ -1,26 +1,28 @@
 import { create } from "zustand";
-import { doc, getDoc, setDoc, onSnapshot, updateDoc, collection, addDoc, deleteDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, onSnapshot, updateDoc, deleteDoc, arrayUnion } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { getInitialState as getTicTacToeState } from "../games/tic-tac-toe/logic";
+import { findGame } from "../games/gameRegistry";
 
 // --- Types ---
 export type PlayerSymbol = "X" | "O";
 export type GamePhase = "lobby" | "in-game" | "post-game";
+export type ConnectionState = "idle" | "connecting" | "connected" | "disconnected";
 
 export interface Player {
   id: string;
   username: string;
 }
 
-// A more robust, typed message system for our data channel
 type GameMessage =
   | { type: "player_join"; payload: Player }
   | { type: "players_update"; payload: Player[] }
   | { type: "username_change"; payload: { id: string; newUsername: string } }
   | { type: "start_game"; payload: any }
   | { type: "game_state_update"; payload: any }
-  | { type: "reset_to_lobby"; payload: any };
+  | { type: "reset_to_lobby"; payload: any }
+  | { type: "player_disconnect" };
 
+// --- Main State and Actions Interface ---
 interface GameState {
   // Core State
   gameId: string | null;
@@ -28,6 +30,7 @@ interface GameState {
   players: Player[];
   gamePhase: GamePhase;
   gameState: any;
+  connectionState: ConnectionState;
 
   // WebRTC
   pc: RTCPeerConnection | null;
@@ -36,9 +39,7 @@ interface GameState {
 
   // Actions
   setGameState: (newState: any) => void;
-  initializeConnection: (isHost: boolean) => void;
-  setupDataChannel: () => void;
-  createGame: (gameName: string) => Promise<void>;
+  createGame: () => Promise<void>;
   joinGame: (id: string) => Promise<void>;
   setMyUsername: (newUsername: string) => void;
   broadcastPlayers: (players: Player[]) => void;
@@ -54,147 +55,182 @@ const servers = {
   iceCandidatePoolSize: 10,
 };
 
-const gameInitialStates: { [key: string]: () => any } = {
-  "tic-tac-toe": getTicTacToeState,
+// --- Helper Functions ---
+const broadcastMessage = (dataChannel: RTCDataChannel | null, message: GameMessage) => {
+  if (dataChannel?.readyState === "open") {
+    dataChannel.send(JSON.stringify(message));
+  }
 };
 
+// CORRECTED: The type for 'set' is now (partial: Partial<GameState>) => void
+const initializeConnection = (
+  isHost: boolean,
+  get: () => GameState,
+  set: (partial: Partial<GameState>) => void
+): RTCPeerConnection => {
+  const pc = new RTCPeerConnection(servers);
+
+  pc.onconnectionstatechange = () => {
+    switch (pc.connectionState) {
+      case "connecting":
+        set({ connectionState: "connecting" });
+        break;
+      case "connected":
+        set({ connectionState: "connected" });
+        break;
+      case "disconnected":
+      case "failed":
+      case "closed":
+        set({ connectionState: "disconnected" });
+        break;
+    }
+  };
+
+  if (isHost) {
+    const channel = pc.createDataChannel("gameData");
+    set({ dataChannel: channel });
+    setupDataChannel(get, set);
+  } else {
+    pc.ondatachannel = (event) => {
+      set({ dataChannel: event.channel });
+      setupDataChannel(get, set);
+    };
+  }
+  set({ pc });
+  return pc;
+};
+
+// CORRECTED: The type for 'set' is now (partial: Partial<GameState>) => void
+const setupDataChannel = (get: () => GameState, set: (partial: Partial<GameState>) => void) => {
+  const { dataChannel } = get();
+  if (!dataChannel) return;
+
+  dataChannel.onopen = () => {
+    set({ connectionState: "connected" });
+    if (get().playerSymbol === "O") {
+      const localPlayer: Player = { id: "O", username: "Player O" };
+      const message: GameMessage = { type: "player_join", payload: localPlayer };
+      broadcastMessage(dataChannel, message);
+    }
+  };
+
+  dataChannel.onclose = () => {
+    set({ connectionState: "disconnected" });
+  };
+
+  dataChannel.onmessage = (event) => {
+    const msg = JSON.parse(event.data) as GameMessage;
+    const { players, playerSymbol } = get();
+    const gameInfo = findGame("tic-tac-toe");
+
+    switch (msg.type) {
+      case "player_join": {
+        if (playerSymbol === "X") {
+          const newPlayers = [...players, msg.payload];
+          set({ players: newPlayers });
+          get().broadcastPlayers(newPlayers);
+        }
+        break;
+      }
+      case "players_update": {
+        set({ players: msg.payload });
+        break;
+      }
+      case "username_change": {
+        if (playerSymbol === "X") {
+          const { id, newUsername } = msg.payload;
+          const updatedPlayers = players.map((p) => (p.id === id ? { ...p, username: newUsername } : p));
+          set({ players: updatedPlayers });
+          get().broadcastPlayers(updatedPlayers);
+        }
+        break;
+      }
+      case "start_game": {
+        set({ gamePhase: "in-game", gameState: msg.payload });
+        break;
+      }
+      case "game_state_update": {
+        set({ gameState: msg.payload });
+        if (gameInfo?.isGameOver(msg.payload)) {
+          set({ gamePhase: "post-game" });
+        }
+        break;
+      }
+      case "reset_to_lobby": {
+        set({ gamePhase: "lobby", gameState: msg.payload });
+        break;
+      }
+      case "player_disconnect": {
+        set({ connectionState: "disconnected" });
+        break;
+      }
+    }
+  };
+};
+
+// --- Zustand Store Implementation ---
 export const useGameStore = create<GameState>((set, get) => ({
-  // --- Initial State ---
+  // Initial State...
   gameId: null,
   playerSymbol: null,
   players: [],
   gamePhase: "lobby",
   gameState: null,
+  connectionState: "idle",
   pc: null,
   dataChannel: null,
   unsubscribes: [],
 
-  // --- State Modifiers ---
+  // Actions...
   setGameState: (newState: any) => set({ gameState: newState }),
 
-  // --- Core Actions ---
-  initializeConnection: (isHost) => {
-    const newPc = new RTCPeerConnection(servers);
-    set({ pc: newPc });
-
-    if (isHost) {
-      const channel = newPc.createDataChannel("gameData");
-      set({ dataChannel: channel });
-      get().setupDataChannel();
-    } else {
-      newPc.ondatachannel = (event) => {
-        set({ dataChannel: event.channel });
-        get().setupDataChannel();
-      };
-    }
-  },
-
-  setupDataChannel: () => {
-    const { dataChannel, playerSymbol } = get();
-    if (!dataChannel) return;
-
-    dataChannel.onopen = () => {
-      console.log("Data channel is open.");
-      if (playerSymbol === "O") {
-        const localPlayer: Player = { id: "O", username: "Player O" };
-        const message: GameMessage = { type: "player_join", payload: localPlayer };
-        dataChannel.send(JSON.stringify(message));
-      }
-    };
-
-    dataChannel.onmessage = (event) => {
-      const msg = JSON.parse(event.data) as GameMessage;
-      const { players, playerSymbol, broadcastPlayers } = get();
-
-      switch (msg.type) {
-        case "player_join": {
-          if (playerSymbol === "X") {
-            // Host receives a new player
-            const newPlayers = [...players, msg.payload];
-            set({ players: newPlayers });
-            broadcastPlayers(newPlayers); // Broadcast the updated list
-          }
-          break;
-        }
-        case "players_update": {
-          // All clients receive the authoritative list from the host
-          set({ players: msg.payload });
-          break;
-        }
-        case "username_change": {
-          if (playerSymbol === "X") {
-            // Host processes the change request
-            const { id, newUsername } = msg.payload;
-            const updatedPlayers = players.map((p) => (p.id === id ? { ...p, username: newUsername } : p));
-            set({ players: updatedPlayers });
-            broadcastPlayers(updatedPlayers);
-          }
-          break;
-        }
-        case "start_game": {
-          set({ gamePhase: "in-game", gameState: msg.payload });
-          break;
-        }
-        case "game_state_update": {
-          set({ gameState: msg.payload });
-          if (msg.payload.winner) {
-            set({ gamePhase: "post-game" });
-          }
-          break;
-        }
-        case "reset_to_lobby": {
-          set({ gamePhase: "lobby", gameState: msg.payload });
-          break;
-        }
-      }
-    };
-  },
-
-  createGame: async (_gameName: string) => {
+  createGame: async () => {
     get().resetStore();
-    set({ playerSymbol: "X" });
-    get().initializeConnection(true);
+    set({ playerSymbol: "X", connectionState: "connecting" });
+    const pc = initializeConnection(true, get, set);
 
-    const newPc = get().pc!;
-    const newGameId = Math.random().toString(36).substring(2, 9);
-    set({ gameId: newGameId });
+    const gameId = Math.random().toString(36).substring(2, 9);
+    set({ gameId, players: [{ id: "X", username: "Player X" }] });
 
-    const hostPlayer: Player = { id: "X", username: "Player X" };
-    set({ players: [hostPlayer] });
+    const gameRef = doc(db, "games", gameId);
+    let hostCandidatesAdded = 0;
 
-    const gameRef = doc(db, "games", newGameId);
-    const candidatesCollection = collection(db, "games", newGameId, "hostCandidates");
-    newPc.onicecandidate = async (event) => {
-      if (event.candidate) await addDoc(candidatesCollection, event.candidate.toJSON());
+    pc.onicecandidate = async (event) => {
+      if (event.candidate) {
+        await updateDoc(gameRef, { hostCandidates: arrayUnion(event.candidate.toJSON()) });
+      }
     };
 
-    const offerDescription = await newPc.createOffer();
-    await newPc.setLocalDescription(offerDescription);
-    await setDoc(gameRef, { offer: { sdp: offerDescription.sdp, type: offerDescription.type } });
+    const offerDescription = await pc.createOffer();
+    await pc.setLocalDescription(offerDescription);
+
+    await setDoc(gameRef, {
+      offer: { sdp: offerDescription.sdp, type: offerDescription.type },
+      hostCandidates: [],
+      guestCandidates: [],
+    });
 
     const unsubGame = onSnapshot(gameRef, (snapshot) => {
       const data = snapshot.data();
-      if (!newPc.currentRemoteDescription && data?.answer) {
-        newPc.setRemoteDescription(new RTCSessionDescription(data.answer));
+      if (!data) return;
+      if (!pc.currentRemoteDescription && data.answer) {
+        pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+      }
+      if (data.guestCandidates) {
+        const newCandidates = data.guestCandidates.slice(hostCandidatesAdded);
+        newCandidates.forEach((candidate: any) => pc.addIceCandidate(new RTCIceCandidate(candidate)));
+        hostCandidatesAdded = data.guestCandidates.length;
       }
     });
 
-    const guestCandidatesCollection = collection(db, "games", newGameId, "guestCandidates");
-    const unsubGuestCandidates = onSnapshot(guestCandidatesCollection, (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === "added") newPc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
-      });
-    });
-
-    set((state) => ({ unsubscribes: [...state.unsubscribes, unsubGame, unsubGuestCandidates] }));
+    set({ unsubscribes: [...get().unsubscribes, unsubGame] });
   },
 
   joinGame: async (id: string) => {
     get().resetStore();
-    set({ playerSymbol: "O", gameId: id });
-    get().initializeConnection(false);
+    set({ playerSymbol: "O", gameId: id, connectionState: "connecting" });
+    const pc = initializeConnection(false, get, set);
 
-    const newPc = get().pc!;
     const gameRef = doc(db, "games", id);
     const gameDoc = await getDoc(gameRef);
 
@@ -204,89 +240,75 @@ export const useGameStore = create<GameState>((set, get) => ({
       return;
     }
 
-    const candidatesCollection = collection(db, "games", id, "guestCandidates");
-    newPc.onicecandidate = async (event) => {
-      if (event.candidate) await addDoc(candidatesCollection, event.candidate.toJSON());
+    let guestCandidatesAdded = 0;
+    pc.onicecandidate = async (event) => {
+      if (event.candidate) {
+        await updateDoc(gameRef, { guestCandidates: arrayUnion(event.candidate.toJSON()) });
+      }
     };
 
-    await newPc.setRemoteDescription(new RTCSessionDescription(gameDoc.data().offer));
-    const answerDescription = await newPc.createAnswer();
-    await newPc.setLocalDescription(answerDescription);
+    await pc.setRemoteDescription(new RTCSessionDescription(gameDoc.data().offer));
+    const answerDescription = await pc.createAnswer();
+    await pc.setLocalDescription(answerDescription);
     await updateDoc(gameRef, { answer: { type: answerDescription.type, sdp: answerDescription.sdp } });
 
-    const hostCandidatesCollection = collection(db, "games", id, "hostCandidates");
-    const unsubHostCandidates = onSnapshot(hostCandidatesCollection, (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === "added") newPc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
-      });
+    const unsubGame = onSnapshot(gameRef, (snapshot) => {
+      const data = snapshot.data();
+      if (data?.hostCandidates) {
+        const newCandidates = data.hostCandidates.slice(guestCandidatesAdded);
+        newCandidates.forEach((candidate: any) => pc.addIceCandidate(new RTCIceCandidate(candidate)));
+        guestCandidatesAdded = data.hostCandidates.length;
+      }
     });
 
-    set((state) => ({ unsubscribes: [...state.unsubscribes, unsubHostCandidates] }));
+    set({ unsubscribes: [...get().unsubscribes, unsubGame] });
   },
 
   setMyUsername: (newUsername: string) => {
     const { playerSymbol, players, dataChannel } = get();
     if (!playerSymbol || !newUsername.trim()) return;
-
     if (playerSymbol === "X") {
-      // Host updates locally and broadcasts
       const updatedPlayers = players.map((p) => (p.id === "X" ? { ...p, username: newUsername } : p));
       set({ players: updatedPlayers });
       get().broadcastPlayers(updatedPlayers);
     } else {
-      // Guest sends a request to the host
-      const message: GameMessage = { type: "username_change", payload: { id: playerSymbol, newUsername } };
-      dataChannel?.send(JSON.stringify(message));
+      broadcastMessage(dataChannel, { type: "username_change", payload: { id: playerSymbol, newUsername } });
     }
   },
 
   broadcastPlayers: (players: Player[]) => {
-    const { dataChannel } = get();
-    const message: GameMessage = { type: "players_update", payload: players };
-    dataChannel?.send(JSON.stringify(message));
+    broadcastMessage(get().dataChannel, { type: "players_update", payload: players });
   },
 
-  updateAndBroadcastState: (newGameState: any) => {
-    const { dataChannel } = get();
-    const message: GameMessage = { type: "game_state_update", payload: newGameState };
-    dataChannel?.send(JSON.stringify(message));
-    get().setGameState(newGameState);
-    if (newGameState.winner) {
+  updateAndBroadcastState: (newState: any) => {
+    const gameInfo = findGame("tic-tac-toe");
+    broadcastMessage(get().dataChannel, { type: "game_state_update", payload: newState });
+    set({ gameState: newState });
+    if (gameInfo?.isGameOver(newState)) {
       set({ gamePhase: "post-game" });
     }
   },
 
   startGame: () => {
-    const { dataChannel, gameState } = get();
-    const message: GameMessage = { type: "start_game", payload: gameState };
-    dataChannel?.send(JSON.stringify(message));
+    broadcastMessage(get().dataChannel, { type: "start_game", payload: get().gameState });
     set({ gamePhase: "in-game" });
   },
 
   playAgain: (gameName: string) => {
     if (get().playerSymbol !== "X") return;
-
-    const getInitial = gameInitialStates[gameName];
-    if (!getInitial) return;
-
-    const newGameState = getInitial();
+    const gameInfo = findGame(gameName);
+    if (!gameInfo) return;
+    const newGameState = gameInfo.getInitialState();
     set({ gamePhase: "lobby", gameState: newGameState });
-
-    const { dataChannel } = get();
-    const message: GameMessage = { type: "reset_to_lobby", payload: newGameState };
-    dataChannel?.send(JSON.stringify(message));
+    broadcastMessage(get().dataChannel, { type: "reset_to_lobby", payload: newGameState });
   },
 
   leaveGame: async () => {
-    const { gameId, playerSymbol, unsubscribes, pc, dataChannel } = get();
+    const { gameId, playerSymbol, dataChannel } = get();
     if (gameId && playerSymbol === "X") {
-      // A proper implementation would use a Cloud Function to recursively delete subcollections.
-      // For now, we just delete the main game document.
       await deleteDoc(doc(db, "games", gameId));
     }
-    unsubscribes.forEach((unsub) => unsub());
-    dataChannel?.close();
-    pc?.close();
+    broadcastMessage(dataChannel, { type: "player_disconnect" });
     get().resetStore();
   },
 
@@ -300,6 +322,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       players: [],
       gamePhase: "lobby",
       gameState: null,
+      connectionState: "idle",
       pc: null,
       dataChannel: null,
       unsubscribes: [],
