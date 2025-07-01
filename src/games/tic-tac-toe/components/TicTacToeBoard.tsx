@@ -1,61 +1,79 @@
 import React from "react";
-import type { GameBoardComponentProps } from "../../../types"; // Use "import type"
-import type { TicTacToeGameState, TicTacToeValue } from "../types";
+import type { GameBoardComponentProps } from "../../../types";
+import type { TicTacToeGameState } from "../types";
+import { useGameStore } from "../../../store/gameStore";
+import { LogOut } from "lucide-react";
 
-// The rest of the file is correct and does not need changes.
-const TicTacToeBoard: React.FC<GameBoardComponentProps<TicTacToeGameState>> = ({
-  gameId,
-  playerSymbol,
+const TicTacToeBoard: React.FC<Omit<GameBoardComponentProps<TicTacToeGameState>, "gameId" | "playerSymbol">> = ({
   gameState,
   onMakeMove,
   onLeaveGame,
 }) => {
+  const { gameId, playerSymbol, players } = useGameStore();
+
   const handleSquareClick = (index: number) => {
     if (gameState.isNext === playerSymbol && !gameState.board[index] && !gameState.winner) {
       onMakeMove(index);
     }
   };
 
+  const getPlayerName = (symbol: "X" | "O" | null) => {
+    if (!symbol) return "";
+    return players.find((p) => p.id === symbol)?.username || `Player ${symbol}`;
+  };
+
+  const statusMessage = () => {
+    if (gameState.winner) {
+      return gameState.winner === "draw" ? "It's a Draw!" : `${getPlayerName(gameState.winner)} wins!`;
+    }
+    return `${getPlayerName(gameState.isNext)}'s Turn`;
+  };
+
   return (
-    <div className="w-full max-w-md p-6 space-y-4 bg-gray-800 rounded-lg shadow-lg text-center">
-      <div className="p-3 bg-gray-900 rounded-md">
-        <p className="text-sm text-gray-400">Game ID</p>
+    <div className="w-full max-w-md p-6 space-y-4 bg-slate-800 rounded-2xl shadow-2xl shadow-slate-950/50 border border-slate-700">
+      <div className="p-3 bg-slate-900/50 rounded-md text-center">
+        <p className="text-sm text-slate-400">Game ID</p>
         <p className="font-mono text-lg text-cyan-400 break-all">{gameId}</p>
       </div>
-      <div className="flex justify-between items-center bg-gray-700 p-3 rounded-md">
+      <div className="flex justify-between items-center bg-slate-700/50 p-3 rounded-md">
         <p className="text-lg text-white">
-          You are Player: <span className="font-bold text-2xl">{playerSymbol}</span>
+          You are:{" "}
+          <span className="font-bold text-2xl">
+            {getPlayerName(playerSymbol)} ({playerSymbol})
+          </span>
         </p>
         <p
           className={`text-lg font-semibold px-3 py-1 rounded-md ${
-            gameState.winner ? "bg-yellow-500 text-black" : "bg-gray-600 text-white"
+            gameState.winner ? "bg-yellow-500 text-black" : "bg-slate-600 text-white"
           }`}
         >
-          {gameState.status}
+          {statusMessage()}
         </p>
       </div>
-      <div className="grid grid-cols-3 gap-3 bg-gray-900 p-3 rounded-md">
-        {gameState.board.map((value: TicTacToeValue | null, index: number) => (
+      <div className="grid grid-cols-3 gap-3 bg-slate-900/50 p-3 rounded-md aspect-square">
+        {gameState.board.map((value: any, index: number) => (
           <button
             key={index}
             onClick={() => handleSquareClick(index)}
-            className={`w-24 h-24 flex items-center justify-center text-5xl font-bold rounded-md transition
+            className={`w-full h-full flex items-center justify-center text-6xl font-bold rounded-md transition duration-150
               ${value === "X" ? "text-red-400" : "text-blue-400"}
               ${
                 gameState.isNext === playerSymbol && !value && !gameState.winner
-                  ? "cursor-pointer bg-gray-700 hover:bg-gray-600"
-                  : "bg-gray-800 cursor-not-allowed"
+                  ? "cursor-pointer bg-slate-700 hover:bg-slate-600"
+                  : "bg-slate-800 cursor-not-allowed"
               }`}
             disabled={gameState.isNext !== playerSymbol || !!value || !!gameState.winner}
           >
-            {value}
+            {/* FIX: Use a non-breaking space to prevent the button from resizing */}
+            {value || "\u00A0"}
           </button>
         ))}
       </div>
       <button
         onClick={onLeaveGame}
-        className="w-full px-4 py-2 font-semibold text-white bg-red-600 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 transition"
+        className="w-full flex items-center justify-center gap-2 px-4 py-2 font-semibold text-slate-300 bg-transparent rounded-md hover:bg-red-600/20 hover:text-red-400 transition"
       >
+        <LogOut size={16} />
         Leave Game
       </button>
     </div>

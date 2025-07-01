@@ -5,10 +5,7 @@ import GamePage from "./features/game/pages/GamePage";
 
 const App: React.FC = () => {
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
-      <header className="text-center mb-8">
-        <h1 className="text-5xl font-bold text-cyan-400">Board Game Hub</h1>
-      </header>
+    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans">
       <main className="w-full flex items-center justify-center">
         <Routes>
           <Route path="/" element={<HomePage />} />

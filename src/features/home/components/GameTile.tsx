@@ -4,18 +4,15 @@ import { Link } from "react-router-dom";
 interface GameTileProps {
   gameId: string;
   name: string;
-  imageUrl: string; // You'll need to add some images to your `public` folder
 }
 
-const GameTile: React.FC<GameTileProps> = ({ gameId, name, imageUrl }) => {
+const GameTile: React.FC<GameTileProps> = ({ gameId, name }) => {
   return (
     <Link
       to={`/game/${gameId}`}
-      className="bg-gray-800 rounded-lg shadow-lg p-4 flex flex-col items-center justify-center text-center hover:bg-gray-700 transition-colors duration-200 aspect-square"
+      className="group bg-slate-800/50 rounded-lg shadow-lg p-4 flex flex-col items-center justify-center text-center transition-all duration-300 hover:bg-slate-700/80 hover:shadow-cyan-500/20 hover:-translate-y-1 aspect-square"
     >
-      {/* Remember to add images to the `public` folder for this to work */}
-      <img src={imageUrl} alt={name} className="w-24 h-24 mb-4 object-cover" />
-      <h3 className="text-xl font-semibold text-white">{name}</h3>
+      <h3 className="text-xl font-semibold text-slate-200 group-hover:text-cyan-400">{name}</h3>
     </Link>
   );
 };
