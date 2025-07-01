@@ -1,15 +1,15 @@
 import React from "react";
-import type { GameState, PlayerSymbol } from "./types";
+import type { GameBoardComponentProps } from "../../../types"; // Use "import type"
+import type { TicTacToeGameState, TicTacToeValue } from "../types";
 
-interface GameBoardProps {
-  gameId: string;
-  playerSymbol: PlayerSymbol;
-  gameState: GameState;
-  onMakeMove: (index: number) => void;
-  onLeaveGame: () => void;
-}
-
-const GameBoard: React.FC<GameBoardProps> = ({ gameId, playerSymbol, gameState, onMakeMove, onLeaveGame }) => {
+// The rest of the file is correct and does not need changes.
+const TicTacToeBoard: React.FC<GameBoardComponentProps<TicTacToeGameState>> = ({
+  gameId,
+  playerSymbol,
+  gameState,
+  onMakeMove,
+  onLeaveGame,
+}) => {
   const handleSquareClick = (index: number) => {
     if (gameState.isNext === playerSymbol && !gameState.board[index] && !gameState.winner) {
       onMakeMove(index);
@@ -34,13 +34,12 @@ const GameBoard: React.FC<GameBoardProps> = ({ gameId, playerSymbol, gameState, 
           {gameState.status}
         </p>
       </div>
-
       <div className="grid grid-cols-3 gap-3 bg-gray-900 p-3 rounded-md">
-        {gameState.board.map((value, index) => (
+        {gameState.board.map((value: TicTacToeValue | null, index: number) => (
           <button
             key={index}
             onClick={() => handleSquareClick(index)}
-            className={`w-24 h-24 flex items-center justify-center text-5xl font-bold rounded-md transition 
+            className={`w-24 h-24 flex items-center justify-center text-5xl font-bold rounded-md transition
               ${value === "X" ? "text-red-400" : "text-blue-400"}
               ${
                 gameState.isNext === playerSymbol && !value && !gameState.winner
@@ -63,4 +62,4 @@ const GameBoard: React.FC<GameBoardProps> = ({ gameId, playerSymbol, gameState, 
   );
 };
 
-export default GameBoard;
+export default TicTacToeBoard;
