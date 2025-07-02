@@ -2,26 +2,29 @@ import type { Player } from "../../../store/gameStore";
 import type { PlayerId, GameAction } from "../../../types";
 import type { TicTacToeGameState, TicTacToeValue } from "../types";
 
-export const getInitialState = (playerIds: PlayerId[]): TicTacToeGameState => ({
-  board: Array(9).fill(null),
-  isNext: "X",
-  winner: null,
-  playerMap: {
-    [playerIds[0]]: "X",
-    [playerIds[1]]: "O",
-  },
-});
+export const getInitialState = (playerIds: PlayerId[]): TicTacToeGameState => {
+  // Randomly assign 'X' and 'O' to the players. 'X' will always go first.
+  const [p1, p2] = playerIds;
+  const isPlayer1_X = Math.random() < 0.5;
 
-export const handleAction = (
-  currentState: TicTacToeGameState,
-  action: GameAction // The playerId is now inside the action
-): TicTacToeGameState => {
+  return {
+    board: Array(9).fill(null),
+    isNext: "X",
+    winner: null,
+    playerMap: {
+      [p1]: isPlayer1_X ? "X" : "O",
+      [p2]: isPlayer1_X ? "O" : "X",
+    },
+  };
+};
+
+export const handleAction = (currentState: TicTacToeGameState, action: GameAction): TicTacToeGameState => {
   if (action.type !== "MAKE_MOVE") {
     return currentState;
   }
 
   const moveIndex = action.payload as number;
-  const playerSymbol = currentState.playerMap[action.playerId]; // Use action.playerId
+  const playerSymbol = currentState.playerMap[action.playerId];
 
   if (!playerSymbol || currentState.board[moveIndex] || currentState.winner || currentState.isNext !== playerSymbol) {
     return currentState;

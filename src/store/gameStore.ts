@@ -158,10 +158,11 @@ export const useGameStore = create<GameState>((set, get) => ({
     const { gameInfo, players } = get();
     const isHost = useConnectionStore.getState().isHost;
     if (!isHost || !gameInfo) return;
+
     const playerIds = players.map((p) => p.id);
     const newGameState = gameInfo.getInitialState(playerIds);
-    set({ gamePhase: "lobby", gameState: newGameState });
-    broadcast({ type: "reset_to_lobby", payload: newGameState });
+    set({ gamePhase: "in-game", gameState: newGameState });
+    broadcast({ type: "start_game", payload: newGameState });
   },
 
   leaveGame: async () => {
