@@ -11,89 +11,85 @@ const GamePage: React.FC = () => {
 
   const {
     gameId,
+    gameInfo,
     gamePhase,
     gameState,
     players,
+    playerId,
+    disconnectionMessage,
     createGame,
     joinGame,
     leaveGame,
-    updateAndBroadcastState,
-    setGameState,
+    performAction,
   } = useGameStore();
 
-  const gameInfo = gameName ? findGame(gameName) : null;
-
   useEffect(() => {
-    if (gameIdFromUrl && !useGameStore.getState().gameId) {
-      joinGame(gameIdFromUrl);
+    if (gameIdFromUrl && !useGameStore.getState().gameId && gameName) {
+      joinGame(gameIdFromUrl, gameName);
     }
-  }, [gameIdFromUrl, joinGame]);
+  }, [gameIdFromUrl, gameName, joinGame]);
 
   useEffect(() => {
-    if (gameInfo && !gameState) {
-      setGameState(gameInfo.getInitialState());
+    if (disconnectionMessage) {
+      // The host has left or we've been disconnected.
+      // The `handleLeaveGame` function correctly resets state and navigates.
+      handleLeaveGame();
     }
-  }, [gameInfo, gameState, setGameState]);
-
-  useEffect(() => {
-    return () => {
-      if (useGameStore.getState().gameId) {
-        leaveGame();
-      }
-    };
-  }, [leaveGame]);
-
-  if (!gameInfo) {
-    return <div className="text-xl text-red-500">Error: Game '{gameName}' not found!</div>;
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disconnectionMessage]);
 
   const handleCreateGame = async () => {
-    const newGameId = await createGame();
-    if (newGameId && gameName) {
+    if (!gameName) return;
+    const newGameId = await createGame(gameName);
+    if (newGameId) {
       navigate(`/game/${gameName}/${newGameId}`, { replace: true });
     }
   };
 
-  // NEW: Centralized handler for leaving the game
   const handleLeaveGame = async () => {
-    // First, execute the leave game logic from the store
     await leaveGame();
-    // Then, navigate the user back to the game's main lobby page
-    if (gameName) {
-      navigate(`/game/${gameName}`);
-    }
+    navigate(`/`);
   };
 
-  const handleMakeMove = (move: any) => {
-    const { playerSymbol, gameState: currentGameState } = useGameStore.getState();
-    if (!playerSymbol || !currentGameState) return;
-
-    const newGameState = gameInfo.calculateMove(currentGameState, move, playerSymbol);
-    updateAndBroadcastState(newGameState);
-  };
-
-  const GameBoardComponent = gameInfo.BoardComponent;
+  if (!gameName) {
+    return <div className="text-xl text-red-500">Error: No game specified in URL!</div>;
+  }
 
   if (!gameId) {
-    return <GameLobby gameName={gameInfo.displayName} onCreateGame={handleCreateGame} />;
+    const lobbyGameInfo = findGame(gameName);
+    if (!lobbyGameInfo) {
+      return <div className="text-xl text-red-500">Error: Game '{gameName}' not found!</div>;
+    }
+    return (
+      <GameLobby
+        gameName={lobbyGameInfo.displayName}
+        onCreateGame={handleCreateGame}
+        disconnectionMessage={disconnectionMessage}
+      />
+    );
   }
 
-  // MODIFIED: Pass the new handler to the PreGameLobby
+  if (!gameInfo) {
+    return <div className="text-xl">Loading game...</div>;
+  }
+
   if (gamePhase === "lobby" || gamePhase === "post-game") {
-    return <PreGameLobby gameName={gameName!} onLeaveGame={handleLeaveGame} />;
+    return <PreGameLobby gameName={gameInfo.displayName} onLeaveGame={handleLeaveGame} />;
   }
 
+  const GameBoardComponent = gameInfo.BoardComponent;
   const statusMessage = gameInfo.getGameStatus(gameState, players);
   const isGameOver = gameInfo.isGameOver(gameState);
+  const isMyTurn = playerId ? gameInfo.isTurnOf(gameState, playerId) : false;
 
   return (
-    <React.Suspense fallback={<div className="text-xl">Loading Game...</div>}>
-      {/* MODIFIED: Pass the new handler to the GameBoardComponent */}
+    <React.Suspense fallback={<div className="text-xl">Loading Game Board...</div>}>
       <GameBoardComponent
         gameState={gameState}
         statusMessage={statusMessage}
         isGameOver={isGameOver}
-        onMakeMove={handleMakeMove}
+        isMyTurn={isMyTurn}
+        onPerformAction={performAction}
         onLeaveGame={handleLeaveGame}
       />
     </React.Suspense>

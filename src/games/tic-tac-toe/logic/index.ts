@@ -1,27 +1,29 @@
 import type { Player } from "../../../store/gameStore";
-import type { PlayerSymbol } from "../../../types";
+import type { PlayerId, GameAction } from "../../../types";
 import type { TicTacToeGameState, TicTacToeValue } from "../types";
 
-function isValidTicTacToeValue(symbol: string): symbol is TicTacToeValue {
-  return symbol === "X" || symbol === "O";
-}
-
-export const getInitialState = (): TicTacToeGameState => ({
+export const getInitialState = (playerIds: PlayerId[]): TicTacToeGameState => ({
   board: Array(9).fill(null),
   isNext: "X",
   winner: null,
+  playerMap: {
+    [playerIds[0]]: "X",
+    [playerIds[1]]: "O",
+  },
 });
 
-export const calculateMove = (
+export const handleAction = (
   currentState: TicTacToeGameState,
-  moveIndex: number,
-  playerSymbol: PlayerSymbol
+  action: GameAction // The playerId is now inside the action
 ): TicTacToeGameState => {
-  if (!isValidTicTacToeValue(playerSymbol)) {
+  if (action.type !== "MAKE_MOVE") {
     return currentState;
   }
 
-  if (currentState.board[moveIndex] || currentState.winner || currentState.isNext !== playerSymbol) {
+  const moveIndex = action.payload as number;
+  const playerSymbol = currentState.playerMap[action.playerId]; // Use action.playerId
+
+  if (!playerSymbol || currentState.board[moveIndex] || currentState.winner || currentState.isNext !== playerSymbol) {
     return currentState;
   }
 
@@ -44,7 +46,7 @@ export const calculateMove = (
   for (const line of lines) {
     const [a, b, c] = line;
     if (newBoard[a] && newBoard[a] === newBoard[b] && newBoard[a] === newBoard[c]) {
-      winner = newBoard[a];
+      winner = newBoard[a] as TicTacToeValue;
       break;
     }
   }
@@ -54,25 +56,33 @@ export const calculateMove = (
   }
 
   return {
+    ...currentState,
     board: newBoard,
     isNext: newIsNext,
     winner,
   };
 };
 
-// NEW: Required by the GameRegistryEntry contract
 export const isGameOver = (gameState: TicTacToeGameState): boolean => {
   return gameState.winner !== null;
 };
 
-// NEW: Required by the GameRegistryEntry contract
+export const isTurnOf = (gameState: TicTacToeGameState, playerId: PlayerId): boolean => {
+  return gameState.playerMap[playerId] === gameState.isNext;
+};
+
 export const getGameStatus = (gameState: TicTacToeGameState, players: Player[]): string => {
-  const getPlayerName = (symbol: TicTacToeValue) => {
-    return players.find((p) => p.id === symbol)?.username || `Player ${symbol}`;
+  const getPlayerBySymbol = (symbol: TicTacToeValue) => {
+    const playerId = Object.keys(gameState.playerMap).find((id) => gameState.playerMap[id] === symbol);
+    return players.find((p) => p.id === playerId);
   };
 
   if (gameState.winner) {
-    return gameState.winner === "draw" ? "It's a Draw!" : `${getPlayerName(gameState.winner)} wins!`;
+    if (gameState.winner === "draw") return "It's a Draw!";
+    const winnerName = getPlayerBySymbol(gameState.winner)?.username || `Player ${gameState.winner}`;
+    return `${winnerName} wins!`;
   }
-  return `${getPlayerName(gameState.isNext)}'s Turn`;
+
+  const nextPlayerName = getPlayerBySymbol(gameState.isNext)?.username || `Player ${gameState.isNext}`;
+  return `${nextPlayerName}'s Turn`;
 };

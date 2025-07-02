@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useGameStore } from "../../../store/gameStore";
+import { useConnectionStore } from "../../../store/connectionStore";
 import { Users, LogOut, Play, Copy, Check, RotateCcw, WifiOff, Loader } from "lucide-react";
 
 interface PreGameLobbyProps {
@@ -8,9 +9,10 @@ interface PreGameLobbyProps {
 }
 
 const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) => {
-  const { playerSymbol, players, gamePhase, connectionState, setMyUsername, startGame, playAgain } = useGameStore();
+  const { playerId, players, gamePhase, setMyUsername, startGame, playAgain } = useGameStore();
+  const { connectionState, isHost } = useConnectionStore(); // Get isHost from connection store
 
-  const localPlayer = players.find((p) => p.id === playerSymbol);
+  const localPlayer = players.find((p) => p.id === playerId);
   const [username, setUsername] = useState(localPlayer?.username || "");
   const [isCopied, setIsCopied] = useState(false);
 
@@ -29,13 +31,17 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) =>
   };
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(shareableLink).then(() => {
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2000);
-    });
+    // Use the Clipboard API for better compatibility and security
+    navigator.clipboard.writeText(shareableLink).then(
+      () => {
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+      },
+      (err) => {
+        console.error("Could not copy text: ", err);
+      }
+    );
   };
-
-  const isHost = playerSymbol === "X";
 
   const renderStatusMessage = () => {
     if (connectionState === "connecting") {
@@ -46,7 +52,7 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) =>
         </div>
       );
     }
-    if (connectionState === "disconnected") {
+    if (connectionState === "disconnected" && players.length < 2) {
       return (
         <div className="flex items-center justify-center gap-2 text-center text-red-400 p-2">
           <WifiOff size={20} />
@@ -54,6 +60,7 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) =>
         </div>
       );
     }
+    // This condition might need adjustment based on gameInfo.minPlayers
     if (players.length < 2) {
       return <li className="text-center text-slate-400 p-2">Waiting for another player...</li>;
     }
@@ -104,11 +111,11 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) =>
           <Users size={20} /> Players
         </h3>
         <ul className="space-y-2 p-3 bg-slate-900/50 rounded-md min-h-[80px]">
-          {players.map((p) => (
+          {players.map((p, index) => (
             <li key={p.id} className="flex items-center justify-between p-2 bg-slate-700/50 rounded">
               <span className="font-bold text-slate-100">{p.username}</span>
               <span className="text-sm font-mono px-2 py-1 bg-slate-600 text-cyan-300 rounded">
-                {p.id === "X" ? "Host" : "Guest"}
+                {p.id === "p1" ? "Host" : `Guest ${index}`}
               </span>
             </li>
           ))}
@@ -128,7 +135,7 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) =>
         )}
         {isHost && gamePhase === "post-game" && (
           <button
-            onClick={() => playAgain(gameName)}
+            onClick={playAgain}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 text-lg font-semibold text-white bg-cyan-600 rounded-md hover:bg-cyan-500 transition transform hover:scale-105"
           >
             <RotateCcw size={20} /> Play Again

@@ -4,26 +4,25 @@ import type { TicTacToeGameState } from "../types";
 import { useGameStore } from "../../../store/gameStore";
 import { LogOut } from "lucide-react";
 
-const TicTacToeBoard: React.FC<Omit<GameBoardComponentProps<TicTacToeGameState>, "gameId" | "playerSymbol">> = ({
+const TicTacToeBoard: React.FC<Omit<GameBoardComponentProps<TicTacToeGameState>, "gameId">> = ({
   gameState,
-  statusMessage, // Now a prop
-  isGameOver, // Now a prop
-  onMakeMove,
+  statusMessage,
+  isGameOver,
+  isMyTurn,
+  onPerformAction, // MODIFIED
   onLeaveGame,
 }) => {
-  const { gameId, playerSymbol, players } = useGameStore();
+  const { gameId, playerId, players } = useGameStore();
 
   const handleSquareClick = (index: number) => {
-    // The core check remains, ensuring the current player can make a move
-    if (gameState.isNext === playerSymbol && !gameState.board[index] && !isGameOver) {
-      onMakeMove(index);
+    if (isMyTurn && !gameState.board[index] && !isGameOver) {
+      // Dispatch a structured action instead of just the move
+      onPerformAction({ type: "MAKE_MOVE", payload: index });
     }
   };
 
-  const getPlayerName = (symbol: "X" | "O" | null) => {
-    if (!symbol) return "";
-    return players.find((p) => p.id === symbol)?.username || `Player ${symbol}`;
-  };
+  const localPlayer = players.find((p) => p.id === playerId);
+  const localPlayerSymbol = localPlayer ? gameState.playerMap[localPlayer.id] : null;
 
   return (
     <div className="w-full max-w-md p-6 space-y-4 bg-slate-800 rounded-2xl shadow-2xl shadow-slate-950/50 border border-slate-700">
@@ -33,9 +32,9 @@ const TicTacToeBoard: React.FC<Omit<GameBoardComponentProps<TicTacToeGameState>,
       </div>
       <div className="flex justify-between items-center bg-slate-700/50 p-3 rounded-md">
         <p className="text-lg text-white">
-          You are:{" "}
+          You are:
           <span className="font-bold text-2xl">
-            {getPlayerName(playerSymbol as "X" | "O")} ({playerSymbol})
+            {localPlayer?.username} ({localPlayerSymbol})
           </span>
         </p>
         <p
@@ -54,11 +53,11 @@ const TicTacToeBoard: React.FC<Omit<GameBoardComponentProps<TicTacToeGameState>,
             className={`w-full h-full flex items-center justify-center text-6xl font-bold rounded-md transition duration-150
               ${value === "X" ? "text-red-400" : "text-blue-400"}
               ${
-                gameState.isNext === playerSymbol && !value && !isGameOver
+                isMyTurn && !value && !isGameOver
                   ? "cursor-pointer bg-slate-700 hover:bg-slate-600"
                   : "bg-slate-800 cursor-not-allowed"
               }`}
-            disabled={gameState.isNext !== playerSymbol || !!value || isGameOver}
+            disabled={!isMyTurn || !!value || isGameOver}
           >
             {value || "\u00A0"}
           </button>
