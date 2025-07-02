@@ -4,24 +4,17 @@ import { Users, LogOut, Play, Copy, Check, RotateCcw, WifiOff, Loader } from "lu
 
 interface PreGameLobbyProps {
   gameName: string;
+  onLeaveGame: () => void;
 }
 
-const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName }) => {
-  const {
-    gameId,
-    playerSymbol,
-    players,
-    gamePhase,
-    connectionState, // NEW state property
-    setMyUsername,
-    startGame,
-    leaveGame,
-    playAgain,
-  } = useGameStore();
+const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) => {
+  const { playerSymbol, players, gamePhase, connectionState, setMyUsername, startGame, playAgain } = useGameStore();
 
   const localPlayer = players.find((p) => p.id === playerSymbol);
   const [username, setUsername] = useState(localPlayer?.username || "");
   const [isCopied, setIsCopied] = useState(false);
+
+  const shareableLink = window.location.href;
 
   useEffect(() => {
     if (localPlayer) {
@@ -35,9 +28,8 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName }) => {
     }
   };
 
-  const handleCopyId = () => {
-    if (!gameId) return;
-    navigator.clipboard.writeText(gameId).then(() => {
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(shareableLink).then(() => {
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
     });
@@ -75,10 +67,10 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName }) => {
       </h2>
 
       <div className="p-3 bg-slate-900/50 rounded-md text-center">
-        <p className="text-sm text-slate-400">Game ID (Share with friends)</p>
+        <p className="text-sm text-slate-400">Share Game Link</p>
         <div className="flex items-center justify-center gap-3 mt-1">
-          <p className="font-mono text-lg text-cyan-400 break-all">{gameId}</p>
-          <button onClick={handleCopyId} className="p-1.5 text-slate-400 hover:text-white transition">
+          <p className="font-mono text-lg text-cyan-400 break-all">{shareableLink}</p>
+          <button onClick={handleCopyLink} className="p-1.5 text-slate-400 hover:text-white transition">
             {isCopied ? <Check size={18} className="text-green-400" /> : <Copy size={18} />}
           </button>
         </div>
@@ -151,7 +143,7 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName }) => {
         )}
 
         <button
-          onClick={leaveGame}
+          onClick={onLeaveGame}
           className="w-full flex items-center justify-center gap-2 px-4 py-2 font-semibold text-slate-300 bg-transparent rounded-md hover:bg-red-600/20 hover:text-red-400 transition"
         >
           <LogOut size={16} /> Leave Game

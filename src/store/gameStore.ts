@@ -39,7 +39,7 @@ interface GameState {
 
   // Actions
   setGameState: (newState: any) => void;
-  createGame: () => Promise<void>;
+  createGame: () => Promise<string | undefined>; // MODIFIED: Returns the game ID
   joinGame: (id: string) => Promise<void>;
   setMyUsername: (newUsername: string) => void;
   broadcastPlayers: (players: Player[]) => void;
@@ -62,7 +62,6 @@ const broadcastMessage = (dataChannel: RTCDataChannel | null, message: GameMessa
   }
 };
 
-// CORRECTED: The type for 'set' is now (partial: Partial<GameState>) => void
 const initializeConnection = (
   isHost: boolean,
   get: () => GameState,
@@ -100,7 +99,6 @@ const initializeConnection = (
   return pc;
 };
 
-// CORRECTED: The type for 'set' is now (partial: Partial<GameState>) => void
 const setupDataChannel = (get: () => GameState, set: (partial: Partial<GameState>) => void) => {
   const { dataChannel } = get();
   if (!dataChannel) return;
@@ -185,45 +183,54 @@ export const useGameStore = create<GameState>((set, get) => ({
   setGameState: (newState: any) => set({ gameState: newState }),
 
   createGame: async () => {
-    get().resetStore();
-    set({ playerSymbol: "X", connectionState: "connecting" });
-    const pc = initializeConnection(true, get, set);
+    try {
+      get().resetStore();
+      set({ playerSymbol: "X", connectionState: "connecting" });
+      const pc = initializeConnection(true, get, set);
 
-    const gameId = Math.random().toString(36).substring(2, 9);
-    set({ gameId, players: [{ id: "X", username: "Player X" }] });
+      // Generate a unique ID for the game
+      const gameId = Math.random().toString(36).substring(2, 15); // Or use a proper UUID library
+      set({ gameId, players: [{ id: "X", username: "Player X" }] });
 
-    const gameRef = doc(db, "games", gameId);
-    let hostCandidatesAdded = 0;
+      const newGameRef = doc(db, "games", gameId);
 
-    pc.onicecandidate = async (event) => {
-      if (event.candidate) {
-        await updateDoc(gameRef, { hostCandidates: arrayUnion(event.candidate.toJSON()) });
-      }
-    };
+      let hostCandidatesAdded = 0;
 
-    const offerDescription = await pc.createOffer();
-    await pc.setLocalDescription(offerDescription);
+      pc.onicecandidate = async (event) => {
+        if (event.candidate) {
+          await updateDoc(newGameRef, { hostCandidates: arrayUnion(event.candidate.toJSON()) });
+        }
+      };
 
-    await setDoc(gameRef, {
-      offer: { sdp: offerDescription.sdp, type: offerDescription.type },
-      hostCandidates: [],
-      guestCandidates: [],
-    });
+      const offerDescription = await pc.createOffer();
+      await pc.setLocalDescription(offerDescription);
 
-    const unsubGame = onSnapshot(gameRef, (snapshot) => {
-      const data = snapshot.data();
-      if (!data) return;
-      if (!pc.currentRemoteDescription && data.answer) {
-        pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-      }
-      if (data.guestCandidates) {
-        const newCandidates = data.guestCandidates.slice(hostCandidatesAdded);
-        newCandidates.forEach((candidate: any) => pc.addIceCandidate(new RTCIceCandidate(candidate)));
-        hostCandidatesAdded = data.guestCandidates.length;
-      }
-    });
+      await setDoc(newGameRef, {
+        offer: { sdp: offerDescription.sdp, type: offerDescription.type },
+        hostCandidates: [],
+        guestCandidates: [],
+      });
 
-    set({ unsubscribes: [...get().unsubscribes, unsubGame] });
+      const unsubGame = onSnapshot(newGameRef, (snapshot) => {
+        const data = snapshot.data();
+        if (!data) return;
+        if (!pc.currentRemoteDescription && data.answer) {
+          pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+        }
+        if (data.guestCandidates) {
+          const newCandidates = data.guestCandidates.slice(hostCandidatesAdded);
+          newCandidates.forEach((candidate: any) => pc.addIceCandidate(new RTCIceCandidate(candidate)));
+          hostCandidatesAdded = data.guestCandidates.length;
+        }
+      });
+
+      set({ unsubscribes: [...get().unsubscribes, unsubGame] });
+      return gameId; // MODIFIED: Return the ID
+    } catch (error) {
+      console.error("Error creating game:", error);
+      get().resetStore();
+      return undefined;
+    }
   },
 
   joinGame: async (id: string) => {

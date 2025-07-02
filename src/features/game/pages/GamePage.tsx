@@ -6,7 +6,7 @@ import GameLobby from "../components/GameLobby";
 import PreGameLobby from "../components/PreGameLobby";
 
 const GamePage: React.FC = () => {
-  const { gameName } = useParams<{ gameName: string }>();
+  const { gameName, gameId: gameIdFromUrl } = useParams<{ gameName: string; gameId?: string }>();
   const navigate = useNavigate();
 
   const {
@@ -24,6 +24,12 @@ const GamePage: React.FC = () => {
   const gameInfo = gameName ? findGame(gameName) : null;
 
   useEffect(() => {
+    if (gameIdFromUrl && !useGameStore.getState().gameId) {
+      joinGame(gameIdFromUrl);
+    }
+  }, [gameIdFromUrl, joinGame]);
+
+  useEffect(() => {
     if (gameInfo && !gameState) {
       setGameState(gameInfo.getInitialState());
     }
@@ -35,13 +41,28 @@ const GamePage: React.FC = () => {
         leaveGame();
       }
     };
-  }, [leaveGame, navigate]);
+  }, [leaveGame]);
 
   if (!gameInfo) {
     return <div className="text-xl text-red-500">Error: Game '{gameName}' not found!</div>;
   }
 
-  const handleCreateGame = () => createGame();
+  const handleCreateGame = async () => {
+    const newGameId = await createGame();
+    if (newGameId && gameName) {
+      navigate(`/game/${gameName}/${newGameId}`, { replace: true });
+    }
+  };
+
+  // NEW: Centralized handler for leaving the game
+  const handleLeaveGame = async () => {
+    // First, execute the leave game logic from the store
+    await leaveGame();
+    // Then, navigate the user back to the game's main lobby page
+    if (gameName) {
+      navigate(`/game/${gameName}`);
+    }
+  };
 
   const handleMakeMove = (move: any) => {
     const { playerSymbol, gameState: currentGameState } = useGameStore.getState();
@@ -54,11 +75,12 @@ const GamePage: React.FC = () => {
   const GameBoardComponent = gameInfo.BoardComponent;
 
   if (!gameId) {
-    return <GameLobby gameName={gameInfo.displayName} onCreateGame={handleCreateGame} onJoinGame={joinGame} />;
+    return <GameLobby gameName={gameInfo.displayName} onCreateGame={handleCreateGame} />;
   }
 
+  // MODIFIED: Pass the new handler to the PreGameLobby
   if (gamePhase === "lobby" || gamePhase === "post-game") {
-    return <PreGameLobby gameName={gameName!} />;
+    return <PreGameLobby gameName={gameName!} onLeaveGame={handleLeaveGame} />;
   }
 
   const statusMessage = gameInfo.getGameStatus(gameState, players);
@@ -66,12 +88,13 @@ const GamePage: React.FC = () => {
 
   return (
     <React.Suspense fallback={<div className="text-xl">Loading Game...</div>}>
+      {/* MODIFIED: Pass the new handler to the GameBoardComponent */}
       <GameBoardComponent
         gameState={gameState}
         statusMessage={statusMessage}
         isGameOver={isGameOver}
         onMakeMove={handleMakeMove}
-        onLeaveGame={leaveGame}
+        onLeaveGame={handleLeaveGame}
       />
     </React.Suspense>
   );

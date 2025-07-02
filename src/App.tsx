@@ -9,6 +9,9 @@ const App: React.FC = () => {
       <main className="w-full flex items-center justify-center">
         <Routes>
           <Route path="/" element={<HomePage />} />
+          {/* Route for joining a specific game room */}
+          <Route path="/game/:gameName/:gameId" element={<GamePage />} />
+          {/* Route for the initial game lobby where you can create a game */}
           <Route path="/game/:gameName" element={<GamePage />} />
         </Routes>
       </main>
