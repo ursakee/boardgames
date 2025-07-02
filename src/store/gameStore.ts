@@ -36,7 +36,6 @@ interface GameState {
   setMyUsername: (newUsername: string) => void;
   setDisconnectionMessage: (message: string | null) => void;
   performAction: (action: Omit<GameAction, "playerId">) => void;
-  updateAndBroadcastState: (newState: any) => void;
   startGame: () => void;
   playAgain: () => void;
   leaveGame: () => Promise<void>;
@@ -119,29 +118,22 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   performAction: (action: Omit<GameAction, "playerId">) => {
     const { gameInfo, gameState, playerId, gamePhase } = get();
-    if (gamePhase !== "in-game" || !gameInfo || !gameState || !playerId) {
-      return;
-    }
-    const fullAction: GameAction = { ...action, playerId };
-    if (!gameInfo.isTurnOf(gameState, playerId)) {
-      return;
-    }
-    const newGameState = gameInfo.handleAction(gameState, fullAction);
-    if (newGameState !== gameState) {
-      set({ gameState: newGameState });
-      broadcast({ type: "game_action", payload: fullAction });
-      if (gameInfo.isGameOver(newGameState)) {
-        set({ gamePhase: "post-game" });
-      }
-    }
-  },
+    const { isHost } = useConnectionStore.getState();
 
-  updateAndBroadcastState: (newState: any) => {
-    const { gameInfo } = get();
-    set({ gameState: newState });
-    broadcast({ type: "game_state_update", payload: newState });
-    if (gameInfo?.isGameOver(newState)) {
-      set({ gamePhase: "post-game" });
+    if (gamePhase !== "in-game" || !gameInfo || !gameState || !playerId) return;
+
+    const fullAction: GameAction = { ...action, playerId };
+
+    if (isHost) {
+      if (!gameInfo.isTurnOf(gameState, playerId)) return;
+      const newGameState = gameInfo.handleAction(gameState, fullAction);
+      set({
+        gameState: newGameState,
+        gamePhase: gameInfo.isGameOver(newGameState) ? "post-game" : "in-game",
+      });
+      broadcast({ type: "game_state_update", payload: newGameState });
+    } else {
+      broadcast({ type: "game_action", payload: fullAction });
     }
   },
 
@@ -150,7 +142,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (!gameInfo) return;
     const playerIds = players.map((p) => p.id);
     const newGameState = gameInfo.getInitialState(playerIds);
-    set({ gamePhase: "in-game", gameState: newGameState });
+    set({ gamePhase: "in-game", gameState: newGameState }); // Use 'start_game' to explicitly begin the game for all clients
     broadcast({ type: "start_game", payload: newGameState });
   },
 
@@ -161,7 +153,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     const playerIds = players.map((p) => p.id);
     const newGameState = gameInfo.getInitialState(playerIds);
-    set({ gamePhase: "in-game", gameState: newGameState });
+    set({ gamePhase: "in-game", gameState: newGameState }); // Use 'start_game' to explicitly begin the new round for all clients
     broadcast({ type: "start_game", payload: newGameState });
   },
 
@@ -229,26 +221,38 @@ useConnectionStore.getState().setOnMessage((msg: GameMessage) => {
       break;
     }
     case "game_action": {
-      const { gameInfo, gameState } = getState();
-      if (!gameInfo || !gameState) return;
-      const newGameState = gameInfo.handleAction(gameState, msg.payload);
-      setState((s) => ({
-        ...s,
-        gameState: newGameState,
-        gamePhase: gameInfo.isGameOver(newGameState) ? "post-game" : s.gamePhase,
-      }));
+      if (isHost) {
+        const { gameInfo, gameState } = getState();
+        if (!gameInfo || !gameState) return;
+
+        if (!gameInfo.isTurnOf(gameState, msg.payload.playerId)) {
+          console.warn("Action rejected: Not player's turn.", msg.payload);
+          return;
+        }
+
+        const newGameState = gameInfo.handleAction(gameState, msg.payload);
+        setState({
+          gameState: newGameState,
+          gamePhase: gameInfo.isGameOver(newGameState) ? "post-game" : "in-game",
+        });
+        broadcast({ type: "game_state_update", payload: newGameState });
+      }
       break;
-    }
-    case "start_game":
+    } // This message explicitly starts or restarts the game. // It must transition the client to the "in-game" phase.
+    case "start_game": {
+      setState({
+        gameState: msg.payload,
+        gamePhase: "in-game",
+      });
+      break;
+    } // This message syncs state during a game. // It can only transition the game to "post-game".
     case "game_state_update": {
       const { gameInfo } = getState();
-      setState((s) => ({
-        ...s,
-        gameState: msg.payload,
-        gamePhase: msg.type === "start_game" ? "in-game" : s.gamePhase,
-      }));
-      if (gameInfo?.isGameOver(msg.payload)) {
-        setState({ gamePhase: "post-game" });
+      const newGameState = msg.payload;
+      if (gameInfo?.isGameOver(newGameState)) {
+        setState({ gameState: newGameState, gamePhase: "post-game" });
+      } else {
+        setState({ gameState: newGameState });
       }
       break;
     }
