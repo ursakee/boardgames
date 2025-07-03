@@ -99,7 +99,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
 
     useConnectionStore.getState().initAsHost(newGameId);
-    await setDoc(doc(db, "games", newGameId), { players: [hostPlayer], connections: {} });
+    await setDoc(doc(db, "games", newGameId), { players: [hostPlayer], connections: {}, gamePhase: "lobby" });
 
     const unsub = onSnapshot(doc(db, "games", newGameId), (snapshot) => {
       if (!snapshot.exists()) {
@@ -143,7 +143,17 @@ export const useGameStore = create<GameState>((set, get) => ({
       const gameSnap = await getDoc(gameRef);
 
       if (!gameSnap.exists()) {
-        set({ disconnectionMessage: "Game not found." });
+        set({ disconnectionMessage: "Game not found or has been ended by the host." });
+        isJoining = false;
+        return;
+      }
+
+      const gameData = gameSnap.data();
+      const existingPlayers = gameData.players as Player[];
+
+      if (existingPlayers.length >= gameInfo.maxPlayers) {
+        set({ disconnectionMessage: "This game lobby is already full." });
+        isJoining = false;
         return;
       }
 
@@ -155,7 +165,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
       });
 
-      const existingPlayers = gameSnap.data().players as Player[];
       const guestId = `p${Math.random().toString(36).substring(2, 9)}`;
       const guestPlayer: Player = { id: guestId, username: `Player ${existingPlayers.length + 1}` };
 
@@ -196,8 +205,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   resetSession: () => {
     get().unsubscribes.forEach((unsub) => unsub());
     useConnectionStore.getState().leaveSession();
-    // **THE FIX:** Use the functional form of 'set' to access the current state.
-    // This resets the session while preserving the disconnection message so it can be displayed.
     set((state) => ({
       gameId: null,
       playerId: null,
@@ -205,7 +212,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       gamePhase: "lobby",
       gameState: null,
       unsubscribes: [],
-      disconnectionMessage: state.disconnectionMessage, // Preserve the message
+      disconnectionMessage: state.disconnectionMessage,
     }));
   },
 

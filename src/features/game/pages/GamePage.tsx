@@ -76,25 +76,22 @@ const GamePage: React.FC = () => {
   if (!gameName) {
     return <div className="text-xl text-red-500">Error: No game specified in URL!</div>;
   }
-
-  // If there's no gameId in the store, we are either creating or joining.
   if (!gameId) {
-    if (gameIdFromUrl) {
-      return <div className="text-xl">Joining game...</div>;
+    if (disconnectionMessage || !gameIdFromUrl) {
+      const lobbyGameInfo = findGame(gameName);
+      if (!lobbyGameInfo) {
+        return <div className="text-xl text-red-500">Error: Game '{gameName}' not found!</div>;
+      }
+      return (
+        <GameLobby
+          gameName={lobbyGameInfo.displayName}
+          onCreateGame={handleCreateGame}
+          disconnectionMessage={disconnectionMessage}
+        />
+      );
     }
-    const lobbyGameInfo = findGame(gameName);
-    if (!lobbyGameInfo) {
-      return <div className="text-xl text-red-500">Error: Game '{gameName}' not found!</div>;
-    }
-    return (
-      <GameLobby
-        gameName={lobbyGameInfo.displayName}
-        onCreateGame={handleCreateGame}
-        disconnectionMessage={disconnectionMessage}
-      />
-    );
+    return <div className="text-xl">Joining game...</div>;
   }
-
   if (!gameInfo) {
     return <div className="text-xl">Loading game...</div>;
   }
