@@ -20,23 +20,40 @@ const GamePage: React.FC = () => {
     createGame,
     joinGame,
     leaveGame,
+    notifyLeave,
+    resetSession,
     performAction,
   } = useGameStore();
 
   useEffect(() => {
-    if (gameIdFromUrl && !useGameStore.getState().gameId && gameName) {
+    // This effect handles the logic for a user joining a game room.
+    // It correctly handles React 18's StrictMode double-mount behavior in development.
+    if (gameIdFromUrl && gameName && !useGameStore.getState().gameId) {
       joinGame(gameIdFromUrl, gameName);
     }
-  }, [gameIdFromUrl, gameName, joinGame]);
+  }, [gameIdFromUrl, gameName, joinGame]); // Dependencies ensure the effect runs if the URL changes
 
   useEffect(() => {
-    if (disconnectionMessage) {
-      // The host has left or we've been disconnected.
-      // The `handleLeaveGame` function correctly resets state and navigates.
-      handleLeaveGame();
+    // This effect handles graceful disconnects when the tab is closed.
+    const handleBeforeUnload = () => {
+      if (useGameStore.getState().gameId) {
+        notifyLeave();
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [notifyLeave]);
+
+  useEffect(() => {
+    // This effect handles being disconnected by the host.
+    if (disconnectionMessage && gameId) {
+      const lobbyUrl = `/game/${gameName}`;
+      resetSession();
+      navigate(lobbyUrl, { replace: true });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [disconnectionMessage]);
+  }, [disconnectionMessage, gameId, gameName, navigate, resetSession]);
 
   const handleCreateGame = async () => {
     if (!gameName) return;
@@ -47,15 +64,24 @@ const GamePage: React.FC = () => {
   };
 
   const handleLeaveGame = async () => {
+    const currentGameName = useGameStore.getState().gameName;
     await leaveGame();
-    navigate(`/`);
+    if (currentGameName) {
+      navigate(`/game/${currentGameName}`);
+    } else {
+      navigate("/");
+    }
   };
 
   if (!gameName) {
     return <div className="text-xl text-red-500">Error: No game specified in URL!</div>;
   }
 
+  // If there's no gameId in the store, we are either creating or joining.
   if (!gameId) {
+    if (gameIdFromUrl) {
+      return <div className="text-xl">Joining game...</div>;
+    }
     const lobbyGameInfo = findGame(gameName);
     if (!lobbyGameInfo) {
       return <div className="text-xl text-red-500">Error: Game '{gameName}' not found!</div>;

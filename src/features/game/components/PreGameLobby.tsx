@@ -10,7 +10,7 @@ interface PreGameLobbyProps {
 
 const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) => {
   const { playerId, players, gamePhase, setMyUsername, startGame, playAgain } = useGameStore();
-  const { connectionState, isHost } = useConnectionStore(); // Get isHost from connection store
+  const { isHost, peerConnectionStates } = useConnectionStore();
 
   const localPlayer = players.find((p) => p.id === playerId);
   const [username, setUsername] = useState(localPlayer?.username || "");
@@ -24,6 +24,16 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) =>
     }
   }, [localPlayer]);
 
+  const areAllPlayersConnected = () => {
+    if (!isHost) {
+      return peerConnectionStates.get("p1") === "connected";
+    }
+
+    const guestIds = players.filter((p) => p.id !== playerId).map((p) => p.id);
+    if (guestIds.length === 0) return false;
+    return guestIds.every((id) => peerConnectionStates.get(id) === "connected");
+  };
+
   const handleUpdateUsername = () => {
     if (username.trim()) {
       setMyUsername(username.trim());
@@ -31,7 +41,6 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) =>
   };
 
   const handleCopyLink = () => {
-    // Use the Clipboard API for better compatibility and security
     navigator.clipboard.writeText(shareableLink).then(
       () => {
         setIsCopied(true);
@@ -44,15 +53,20 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) =>
   };
 
   const renderStatusMessage = () => {
-    if (connectionState === "connecting") {
+    const isConnecting = Array.from(peerConnectionStates.values()).some((s) => s === "connecting");
+    if (isConnecting) {
       return (
         <div className="flex items-center justify-center gap-2 text-center text-cyan-400 p-2">
           <Loader className="animate-spin" size={20} />
-          <span>Connecting to peer...</span>
+          <span>Connecting to player...</span>
         </div>
       );
     }
-    if (connectionState === "disconnected" && players.length < 2) {
+
+    const hasDisconnected = Array.from(peerConnectionStates.values()).some(
+      (s) => s === "disconnected" || s === "failed"
+    );
+    if (hasDisconnected && players.length < 2) {
       return (
         <div className="flex items-center justify-center gap-2 text-center text-red-400 p-2">
           <WifiOff size={20} />
@@ -60,7 +74,7 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) =>
         </div>
       );
     }
-    // This condition might need adjustment based on gameInfo.minPlayers
+
     if (players.length < 2) {
       return <li className="text-center text-slate-400 p-2">Waiting for another player...</li>;
     }
@@ -128,7 +142,7 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) =>
           <button
             onClick={startGame}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 text-lg font-semibold text-black bg-green-400 rounded-md hover:bg-green-300 transition transform hover:scale-105 disabled:bg-slate-600 disabled:cursor-not-allowed disabled:scale-100"
-            disabled={players.length < 2 || connectionState !== "connected"}
+            disabled={players.length < 2 || !areAllPlayersConnected()}
           >
             <Play size={20} /> Start Game
           </button>
@@ -141,7 +155,7 @@ const PreGameLobby: React.FC<PreGameLobbyProps> = ({ gameName, onLeaveGame }) =>
             <RotateCcw size={20} /> Play Again
           </button>
         )}
-        {!isHost && connectionState === "connected" && (
+        {!isHost && areAllPlayersConnected() && (
           <p className="text-center text-slate-400">
             {gamePhase === "post-game"
               ? "Waiting for the host to start a new game."

@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { PlusCircle, Info } from "lucide-react";
+import { useGameStore } from "../../../store/gameStore";
 
 interface GameLobbyProps {
   gameName: string;
@@ -8,6 +9,17 @@ interface GameLobbyProps {
 }
 
 const GameLobby: React.FC<GameLobbyProps> = ({ gameName, onCreateGame, disconnectionMessage }) => {
+  const clearDisconnectionMessage = useGameStore((state) => state.clearDisconnectionMessage);
+
+  useEffect(() => {
+    if (disconnectionMessage) {
+      const timer = setTimeout(() => {
+        clearDisconnectionMessage();
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [disconnectionMessage, clearDisconnectionMessage]);
+
   return (
     <div className="w-full max-w-md p-8 space-y-6 bg-slate-800 rounded-2xl shadow-2xl shadow-slate-950/50 border border-slate-700">
       {disconnectionMessage && (

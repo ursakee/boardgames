@@ -2,6 +2,23 @@ import { create } from "zustand";
 import { useConnectionStore } from "./connectionStore";
 import { findGame } from "../games/gameRegistry";
 import type { GameAction, GameRegistryEntry, PlayerId } from "../types";
+import {
+  collection,
+  doc,
+  setDoc,
+  onSnapshot,
+  updateDoc,
+  deleteDoc,
+  getDoc,
+  arrayUnion,
+  deleteField,
+  type Unsubscribe,
+} from "firebase/firestore";
+import { db } from "../lib/firebase";
+
+// A module-level lock to prevent race conditions during the join process,
+// especially when dealing with React's StrictMode.
+let isJoining = false;
 
 // --- Types ---
 export type GamePhase = "lobby" | "in-game" | "post-game";
@@ -12,14 +29,13 @@ export interface Player {
 }
 
 type GameMessage =
-  | { type: "player_join"; payload: Player }
-  | { type: "players_update"; payload: Player[] }
-  | { type: "username_change"; payload: { id: PlayerId; newUsername: string } }
+  | { type: "player_leaving" }
+  | { type: "username_change"; payload: { newUsername: string } }
+  | { type: "game_action"; payload: GameAction }
   | { type: "start_game"; payload: any }
   | { type: "game_state_update"; payload: any }
-  | { type: "game_action"; payload: GameAction }
-  | { type: "reset_to_lobby"; payload: any }
-  | { type: "player_disconnect" };
+  | { type: "sync_players"; payload: Player[] }
+  | { type: "sync_full_game_state"; payload: { players: Player[]; gameState: any; gamePhase: GamePhase } };
 
 // --- Main State and Actions Interface ---
 interface GameState {
@@ -31,18 +47,24 @@ interface GameState {
   gamePhase: GamePhase;
   gameState: any;
   disconnectionMessage: string | null;
+  unsubscribes: Unsubscribe[];
+
   createGame: (gameName: string) => Promise<string | undefined>;
   joinGame: (id: string, gameName: string) => Promise<void>;
+  leaveGame: () => Promise<void>;
+  notifyLeave: () => void;
+  resetSession: () => void;
+  clearDisconnectionMessage: () => void;
   setMyUsername: (newUsername: string) => void;
-  setDisconnectionMessage: (message: string | null) => void;
   performAction: (action: Omit<GameAction, "playerId">) => void;
   startGame: () => void;
   playAgain: () => void;
-  leaveGame: () => Promise<void>;
+
+  handleMessage: (message: GameMessage, fromPlayerId: PlayerId) => void;
+  handlePlayerConnect: (connectedPlayerId: PlayerId) => void;
+  handlePlayerDisconnect: (disconnectedPlayerId: PlayerId) => void;
   resetStore: () => void;
 }
-
-const broadcast = (message: GameMessage) => useConnectionStore.getState().sendMessage(message);
 
 export const useGameStore = create<GameState>((set, get) => ({
   gameId: null,
@@ -53,117 +75,147 @@ export const useGameStore = create<GameState>((set, get) => ({
   gamePhase: "lobby",
   gameState: null,
   disconnectionMessage: null,
+  unsubscribes: [],
 
   createGame: async (gameName: string) => {
-    get().resetStore();
-    set({ disconnectionMessage: null });
+    if (get().gameId) return;
+
     const gameInfo = findGame(gameName);
-    if (!gameInfo) {
-      return undefined;
-    }
+    if (!gameInfo) return;
+
+    get().resetStore();
+
     const hostId = "p1";
-    const sessionId = await useConnectionStore.getState().createSession();
-    if (sessionId) {
-      set({
-        gameId: sessionId,
-        gameName: gameName,
-        gameInfo: gameInfo,
-        playerId: hostId,
-        players: [{ id: hostId, username: "Player 1" }],
-        gameState: null,
-      });
-    }
-    return sessionId;
+    const newGameId = doc(collection(db, "games")).id;
+    const hostPlayer: Player = { id: hostId, username: "Player 1" };
+
+    set({
+      gameId: newGameId,
+      gameName,
+      gameInfo,
+      playerId: hostId,
+      players: [hostPlayer],
+      gamePhase: "lobby",
+    });
+
+    useConnectionStore.getState().initAsHost(newGameId);
+    await setDoc(doc(db, "games", newGameId), { players: [hostPlayer], connections: {} });
+
+    const unsub = onSnapshot(doc(db, "games", newGameId), (snapshot) => {
+      if (!snapshot.exists()) {
+        get().leaveGame();
+        return;
+      }
+      const { players: updatedPlayers = [] } = snapshot.data();
+      const currentPlayers = get().players;
+
+      if (get().gameId === newGameId) {
+        set({ players: updatedPlayers });
+
+        if (updatedPlayers.length > currentPlayers.length) {
+          const newPlayer = updatedPlayers.find((p: Player) => !currentPlayers.some((cp) => cp.id === p.id));
+          if (newPlayer) {
+            useConnectionStore.getState().initiateConnectionForGuest(newPlayer.id);
+          }
+        }
+      }
+    });
+
+    set({ unsubscribes: [unsub] });
+    return newGameId;
   },
 
   joinGame: async (id: string, gameName: string) => {
-    get().resetStore();
-    set({ disconnectionMessage: null });
-    const gameInfo = findGame(gameName);
-    if (!gameInfo) {
-      await useConnectionStore.getState().joinSession(id);
-      set({ gameId: id, gameName: gameName });
+    if (isJoining) {
       return;
     }
-    const guestId = `p${Math.floor(Math.random() * 1000) + 2}`;
-    const self = { id: guestId, username: "Player 2" };
-    set({
-      gameId: id,
-      gameName: gameName,
-      gameInfo: gameInfo,
-      playerId: guestId,
-      players: [self],
-      gameState: null,
-    });
+    isJoining = true;
 
-    await useConnectionStore.getState().joinSession(id);
-  },
+    try {
+      if (get().gameId) {
+        return;
+      }
 
-  setMyUsername: (newUsername: string) => {
-    const { playerId, players } = get();
-    const isHost = useConnectionStore.getState().isHost;
-    if (!playerId || !newUsername.trim()) return;
-    const updatedPlayers = players.map((p) => (p.id === playerId ? { ...p, username: newUsername } : p));
-    set({ players: updatedPlayers });
-    if (isHost) {
-      broadcast({ type: "players_update", payload: updatedPlayers });
-    } else {
-      broadcast({ type: "username_change", payload: { id: playerId, newUsername } });
-    }
-  },
+      const gameInfo = findGame(gameName);
+      if (!gameInfo) return;
 
-  setDisconnectionMessage: (message: string | null) => {
-    set({ disconnectionMessage: message });
-  },
+      const gameRef = doc(db, "games", id);
+      const gameSnap = await getDoc(gameRef);
 
-  performAction: (action: Omit<GameAction, "playerId">) => {
-    const { gameInfo, gameState, playerId, gamePhase } = get();
-    const { isHost } = useConnectionStore.getState();
+      if (!gameSnap.exists()) {
+        set({ disconnectionMessage: "Game not found." });
+        return;
+      }
 
-    if (gamePhase !== "in-game" || !gameInfo || !gameState || !playerId) return;
+      get().resetStore();
 
-    const fullAction: GameAction = { ...action, playerId };
-
-    if (isHost) {
-      if (!gameInfo.isTurnOf(gameState, playerId)) return;
-      const newGameState = gameInfo.handleAction(gameState, fullAction);
-      set({
-        gameState: newGameState,
-        gamePhase: gameInfo.isGameOver(newGameState) ? "post-game" : "in-game",
+      const unsub = onSnapshot(gameRef, (snapshot) => {
+        if (!snapshot.exists()) {
+          set({ disconnectionMessage: "The host has left the game." });
+        }
       });
-      broadcast({ type: "game_state_update", payload: newGameState });
-    } else {
-      broadcast({ type: "game_action", payload: fullAction });
+
+      const existingPlayers = gameSnap.data().players as Player[];
+      const guestId = `p${Math.random().toString(36).substring(2, 9)}`;
+      const guestPlayer: Player = { id: guestId, username: `Player ${existingPlayers.length + 1}` };
+
+      set({
+        gameId: id,
+        gameName,
+        gameInfo,
+        playerId: guestId,
+        gamePhase: "lobby",
+        unsubscribes: [unsub],
+      });
+
+      await updateDoc(gameRef, { players: arrayUnion(guestPlayer) });
+      useConnectionStore.getState().initAsGuest(id, guestId, "p1");
+    } finally {
+      isJoining = false;
     }
   },
 
-  startGame: () => {
-    const { gameInfo, players } = get();
-    if (!gameInfo) return;
-    const playerIds = players.map((p) => p.id);
-    const newGameState = gameInfo.getInitialState(playerIds);
-    set({ gamePhase: "in-game", gameState: newGameState }); // Use 'start_game' to explicitly begin the game for all clients
-    broadcast({ type: "start_game", payload: newGameState });
-  },
-
-  playAgain: () => {
-    const { gameInfo, players } = get();
-    const isHost = useConnectionStore.getState().isHost;
-    if (!isHost || !gameInfo) return;
-
-    const playerIds = players.map((p) => p.id);
-    const newGameState = gameInfo.getInitialState(playerIds);
-    set({ gamePhase: "in-game", gameState: newGameState }); // Use 'start_game' to explicitly begin the new round for all clients
-    broadcast({ type: "start_game", payload: newGameState });
+  notifyLeave: () => {
+    const { isHost } = useConnectionStore.getState();
+    if (!isHost) {
+      useConnectionStore.getState().sendMessageToHost({ type: "player_leaving" });
+    }
   },
 
   leaveGame: async () => {
-    await useConnectionStore.getState().leaveSession();
+    get().notifyLeave();
+    const { isHost } = useConnectionStore.getState();
+    const { gameId } = get();
+    if (isHost && gameId) {
+      await deleteDoc(doc(db, "games", gameId));
+    }
+    useConnectionStore.getState().leaveSession();
     get().resetStore();
   },
 
-  resetStore: () => {
+  resetSession: () => {
+    get().unsubscribes.forEach((unsub) => unsub());
+    useConnectionStore.getState().leaveSession();
+    // **THE FIX:** Use the functional form of 'set' to access the current state.
+    // This resets the session while preserving the disconnection message so it can be displayed.
     set((state) => ({
+      gameId: null,
+      playerId: null,
+      players: [],
+      gamePhase: "lobby",
+      gameState: null,
+      unsubscribes: [],
+      disconnectionMessage: state.disconnectionMessage, // Preserve the message
+    }));
+  },
+
+  clearDisconnectionMessage: () => {
+    set({ disconnectionMessage: null });
+  },
+
+  resetStore: () => {
+    get().unsubscribes.forEach((unsub) => unsub());
+    set({
       gameId: null,
       gameName: null,
       gameInfo: null,
@@ -171,108 +223,158 @@ export const useGameStore = create<GameState>((set, get) => ({
       players: [],
       gamePhase: "lobby",
       gameState: null,
-      disconnectionMessage: state.disconnectionMessage,
-    }));
+      disconnectionMessage: null,
+      unsubscribes: [],
+    });
+  },
+
+  setMyUsername: (newUsername: string) => {
+    const { playerId, players, gameId } = get();
+    const { isHost, sendMessageToHost } = useConnectionStore.getState();
+    if (!playerId || !newUsername.trim()) return;
+
+    if (isHost) {
+      const updatedPlayers = players.map((p) => (p.id === playerId ? { ...p, username: newUsername } : p));
+      set({ players: updatedPlayers });
+      useConnectionStore.getState().broadcastMessage({ type: "sync_players", payload: updatedPlayers });
+      if (gameId) updateDoc(doc(db, "games", gameId), { players: updatedPlayers });
+    } else {
+      sendMessageToHost({ type: "username_change", payload: { newUsername } });
+    }
+  },
+
+  performAction: (action: Omit<GameAction, "playerId">) => {
+    const { playerId, gamePhase } = get();
+    const { isHost, sendMessageToHost } = useConnectionStore.getState();
+    if (gamePhase !== "in-game" || !playerId) return;
+
+    const fullAction: GameAction = { ...action, playerId };
+    if (isHost) {
+      get().handleMessage({ type: "game_action", payload: fullAction }, playerId);
+    } else {
+      sendMessageToHost({ type: "game_action", payload: fullAction });
+    }
+  },
+
+  startGame: () => {
+    const { gameInfo, players, gameId } = get();
+    const { isHost, broadcastMessage } = useConnectionStore.getState();
+    if (!isHost || !gameInfo) return;
+
+    const newGameState = gameInfo.getInitialState(players.map((p) => p.id));
+    const newPhase = "in-game";
+    set({ gameState: newGameState, gamePhase: newPhase });
+
+    broadcastMessage({ type: "start_game", payload: newGameState });
+    if (gameId) {
+      updateDoc(doc(db, "games", gameId), { gameState: newGameState, gamePhase: newPhase });
+    }
+  },
+
+  playAgain: () => {
+    get().startGame();
+  },
+
+  handlePlayerConnect: (connectedPlayerId: PlayerId) => {
+    const { isHost } = useConnectionStore.getState();
+    if (isHost) {
+      const { players, gameState, gamePhase } = get();
+      useConnectionStore.getState().sendMessageToGuest(connectedPlayerId, {
+        type: "sync_full_game_state",
+        payload: { players, gameState, gamePhase },
+      });
+    }
+  },
+
+  handleMessage: (message: GameMessage, fromPlayerId: PlayerId) => {
+    const { isHost } = useConnectionStore.getState();
+    if (!isHost) return;
+
+    const { players, gameId, gameInfo, gameState } = get();
+
+    switch (message.type) {
+      case "player_leaving": {
+        get().handlePlayerDisconnect(fromPlayerId);
+        break;
+      }
+      case "username_change": {
+        const updatedPlayers = players.map((p) =>
+          p.id === fromPlayerId ? { ...p, username: message.payload.newUsername } : p
+        );
+        set({ players: updatedPlayers });
+        useConnectionStore.getState().broadcastMessage({ type: "sync_players", payload: updatedPlayers });
+        if (gameId) updateDoc(doc(db, "games", gameId), { players: updatedPlayers });
+        break;
+      }
+      case "game_action": {
+        if (!gameInfo || !gameState || !gameInfo.isTurnOf(gameState, message.payload.playerId)) return;
+        const newGameState = gameInfo.handleAction(gameState, message.payload);
+        const newPhase = gameInfo.isGameOver(newGameState) ? "post-game" : "in-game";
+        set({ gameState: newGameState, gamePhase: newPhase });
+        useConnectionStore.getState().broadcastMessage({ type: "game_state_update", payload: newGameState });
+        if (gameId) {
+          updateDoc(doc(db, "games", gameId), { gameState: newGameState, gamePhase: newPhase });
+        }
+        break;
+      }
+    }
+  },
+
+  handlePlayerDisconnect: async (disconnectedPlayerId: PlayerId) => {
+    const { isHost } = useConnectionStore.getState();
+    if (isHost) {
+      const { gameId, players } = get();
+      const updatedPlayers = players.filter((p) => p.id !== disconnectedPlayerId);
+      if (updatedPlayers.length < players.length) {
+        set({ players: updatedPlayers });
+        if (gameId) {
+          const gameRef = doc(db, "games", gameId);
+          await updateDoc(gameRef, {
+            players: updatedPlayers,
+            [`connections.${disconnectedPlayerId}`]: deleteField(),
+          });
+        }
+        useConnectionStore.getState().broadcastMessage({ type: "sync_players", payload: updatedPlayers });
+      }
+    } else {
+      if (disconnectedPlayerId === "p1") {
+        set({ disconnectionMessage: "The host has disconnected." });
+      }
+    }
   },
 }));
 
-// --- Inter-Store Communication ---
+useConnectionStore.setState({
+  onMessageCallback: (message, fromPlayerId) => {
+    const { getState, setState } = useGameStore;
+    const { isHost } = useConnectionStore.getState();
 
-useConnectionStore.getState().setOnMessage((msg: GameMessage) => {
-  const { getState, setState } = useGameStore;
-  const { isHost, resetHostConnection } = useConnectionStore.getState();
+    if (isHost) {
+      getState().handleMessage(message, fromPlayerId);
+    }
 
-  switch (msg.type) {
-    case "player_join": {
-      if (isHost) {
-        const { players } = getState();
-        if (!players.some((p) => p.id === msg.payload.id)) {
-          const newPlayers = [...players, msg.payload];
-          setState((s) => ({ ...s, players: newPlayers }));
-          broadcast({ type: "players_update", payload: newPlayers });
-        }
-      }
-      break;
-    }
-    case "players_update": {
-      setState((s) => ({ ...s, players: msg.payload }));
-      break;
-    }
-    case "username_change": {
-      if (isHost) {
-        const { players } = getState();
-        const { id, newUsername } = msg.payload;
-        const updatedPlayers = players.map((p) => (p.id === id ? { ...p, username: newUsername } : p));
-        setState((s) => ({ ...s, players: updatedPlayers }));
-        broadcast({ type: "players_update", payload: updatedPlayers });
-      }
-      break;
-    }
-    case "player_disconnect": {
-      if (isHost) {
-        const { playerId, players } = getState();
-        const me = players.find((p) => p.id === playerId);
-        setState({ players: me ? [me] : [] });
-        resetHostConnection();
-      } else {
-        getState().setDisconnectionMessage("The host has left the game.");
-        getState().leaveGame();
-      }
-      break;
-    }
-    case "game_action": {
-      if (isHost) {
-        const { gameInfo, gameState } = getState();
-        if (!gameInfo || !gameState) return;
-
-        if (!gameInfo.isTurnOf(gameState, msg.payload.playerId)) {
-          console.warn("Action rejected: Not player's turn.", msg.payload);
-          return;
-        }
-
-        const newGameState = gameInfo.handleAction(gameState, msg.payload);
+    switch (message.type) {
+      case "sync_full_game_state":
+        setState({
+          players: message.payload.players,
+          gameState: message.payload.gameState,
+          gamePhase: message.payload.gamePhase,
+        });
+        break;
+      case "sync_players":
+        setState({ players: message.payload });
+        break;
+      case "start_game":
+        setState({ gameState: message.payload, gamePhase: "in-game" });
+        break;
+      case "game_state_update":
+        const gameInfo = getState().gameInfo;
+        const newGameState = message.payload;
         setState({
           gameState: newGameState,
-          gamePhase: gameInfo.isGameOver(newGameState) ? "post-game" : "in-game",
+          gamePhase: gameInfo?.isGameOver(newGameState) ? "post-game" : "in-game",
         });
-        broadcast({ type: "game_state_update", payload: newGameState });
-      }
-      break;
-    } // This message explicitly starts or restarts the game. // It must transition the client to the "in-game" phase.
-    case "start_game": {
-      setState({
-        gameState: msg.payload,
-        gamePhase: "in-game",
-      });
-      break;
-    } // This message syncs state during a game. // It can only transition the game to "post-game".
-    case "game_state_update": {
-      const { gameInfo } = getState();
-      const newGameState = msg.payload;
-      if (gameInfo?.isGameOver(newGameState)) {
-        setState({ gameState: newGameState, gamePhase: "post-game" });
-      } else {
-        setState({ gameState: newGameState });
-      }
-      break;
+        break;
     }
-    case "reset_to_lobby": {
-      setState((s) => ({ ...s, gamePhase: "lobby", gameState: msg.payload }));
-      break;
-    }
-  }
-});
-
-useConnectionStore.subscribe((state, prevState) => {
-  if (state.dataChannelState === "open" && prevState.dataChannelState !== "open") {
-    const { isHost } = state;
-    const { playerId, players } = useGameStore.getState();
-
-    if (!isHost && playerId) {
-      const me = players.find((p) => p.id === playerId);
-      if (me) {
-        broadcast({ type: "player_join", payload: me });
-      }
-    }
-  }
+  },
 });
