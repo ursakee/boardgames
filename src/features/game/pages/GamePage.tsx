@@ -1,120 +1,51 @@
 import React, { useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useGameStore } from "../../../store/gameStore";
 import { findGame } from "../../../games/gameRegistry";
-import GameLobby from "../components/GameLobby";
-import PreGameLobby from "../components/PreGameLobby";
 
 const GamePage: React.FC = () => {
-  const { gameName, gameId: gameIdFromUrl } = useParams<{ gameName: string; gameId?: string }>();
-  const navigate = useNavigate();
+  const { gameName, gameId } = useParams<{ gameName: string; gameId?: string }>();
 
-  const {
-    gameId,
-    gameInfo,
-    gamePhase,
-    gameState,
-    players,
-    playerId,
-    disconnectionMessage,
-    createGame,
-    joinGame,
-    leaveGame,
-    notifyLeave,
-    resetSession,
-    performAction,
-  } = useGameStore();
-
+  // Effect to handle graceful disconnects when the tab is closed.
   useEffect(() => {
-    // This effect handles the logic for a user joining a game room.
-    // It correctly handles React 18's StrictMode double-mount behavior in development.
-    if (gameIdFromUrl && gameName && !useGameStore.getState().gameId) {
-      joinGame(gameIdFromUrl, gameName);
-    }
-  }, [gameIdFromUrl, gameName, joinGame]); // Dependencies ensure the effect runs if the URL changes
-
-  useEffect(() => {
-    // This effect handles graceful disconnects when the tab is closed.
     const handleBeforeUnload = () => {
       if (useGameStore.getState().gameId) {
-        notifyLeave();
+        useGameStore.getState().notifyLeave();
       }
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, [notifyLeave]);
-
-  useEffect(() => {
-    // This effect handles being disconnected by the host.
-    if (disconnectionMessage && gameId) {
-      const lobbyUrl = `/game/${gameName}`;
-      resetSession();
-      navigate(lobbyUrl, { replace: true });
-    }
-  }, [disconnectionMessage, gameId, gameName, navigate, resetSession]);
-
-  const handleCreateGame = async () => {
-    if (!gameName) return;
-    const newGameId = await createGame(gameName);
-    if (newGameId) {
-      navigate(`/game/${gameName}/${newGameId}`, { replace: true });
-    }
-  };
-
-  const handleLeaveGame = async () => {
-    const currentGameName = useGameStore.getState().gameName;
-    await leaveGame();
-    if (currentGameName) {
-      navigate(`/game/${currentGameName}`);
-    } else {
-      navigate("/");
-    }
-  };
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 
   if (!gameName) {
+    // Should ideally redirect to home or show a generic error page
     return <div className="text-xl text-red-500">Error: No game specified in URL!</div>;
   }
-  if (!gameId) {
-    if (disconnectionMessage || !gameIdFromUrl) {
-      const lobbyGameInfo = findGame(gameName);
-      if (!lobbyGameInfo) {
-        return <div className="text-xl text-red-500">Error: Game '{gameName}' not found!</div>;
-      }
-      return (
-        <GameLobby
-          gameName={lobbyGameInfo.displayName}
-          onCreateGame={handleCreateGame}
-          disconnectionMessage={disconnectionMessage}
-        />
-      );
-    }
-    return <div className="text-xl">Joining game...</div>;
-  }
+
+  const gameInfo = findGame(gameName);
+
   if (!gameInfo) {
-    return <div className="text-xl">Loading game...</div>;
+    // This can be improved with a "Not Found" page component
+    return <div className="text-xl text-red-500">Error: Game '{gameName}' not found!</div>;
   }
 
-  if (gamePhase === "lobby" || gamePhase === "post-game") {
-    return <PreGameLobby gameName={gameInfo.displayName} onLeaveGame={handleLeaveGame} />;
+  // If a gameId is present in the URL, the user is joining or is in a game session.
+  // Render the specific GamePageComponent for that game. It will handle all logic.
+  if (gameId) {
+    const GamePageComponent = gameInfo.GamePageComponent;
+    return (
+      <React.Suspense fallback={<div className="text-xl">Loading Game...</div>}>
+        <GamePageComponent />
+      </React.Suspense>
+    );
   }
 
-  const GameBoardComponent = gameInfo.BoardComponent;
-  const statusMessage = gameInfo.getGameStatus(gameState, players);
-  const isGameOver = gameInfo.isGameOver(gameState);
-  const isMyTurn = playerId ? gameInfo.isTurnOf(gameState, playerId) : false;
-
+  // If there's no gameId, the user is at the initial lobby screen for the game.
+  // Render the specific LobbyPageComponent for that game.
+  const LobbyPageComponent = gameInfo.LobbyPageComponent;
   return (
-    <React.Suspense fallback={<div className="text-xl">Loading Game Board...</div>}>
-      <GameBoardComponent
-        gameState={gameState}
-        statusMessage={statusMessage}
-        isGameOver={isGameOver}
-        isMyTurn={isMyTurn}
-        onPerformAction={performAction}
-        onLeaveGame={handleLeaveGame}
-      />
+    <React.Suspense fallback={<div className="text-xl">Loading Lobby...</div>}>
+      <LobbyPageComponent />
     </React.Suspense>
   );
 };

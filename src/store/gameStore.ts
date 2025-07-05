@@ -50,7 +50,7 @@ interface GameState {
   unsubscribes: Unsubscribe[];
 
   createGame: (gameName: string) => Promise<string | undefined>;
-  joinGame: (id: string, gameName: string) => Promise<void>;
+  joinGame: (id: string, gameName: string) => Promise<"success" | "failed" | "locked">;
   leaveGame: () => Promise<void>;
   notifyLeave: () => void;
   resetSession: () => void;
@@ -125,27 +125,25 @@ export const useGameStore = create<GameState>((set, get) => ({
     return newGameId;
   },
 
-  joinGame: async (id: string, gameName: string) => {
-    if (isJoining) {
-      return;
-    }
+  joinGame: async (id: string, gameName: string): Promise<"success" | "failed" | "locked"> => {
+    if (isJoining) return "locked";
     isJoining = true;
 
     try {
-      if (get().gameId) {
-        return;
-      }
+      if (get().gameId) return "success";
 
       const gameInfo = findGame(gameName);
-      if (!gameInfo) return;
+      if (!gameInfo) {
+        set({ disconnectionMessage: `Invalid game type: ${gameName}` });
+        return "failed";
+      }
 
       const gameRef = doc(db, "games", id);
       const gameSnap = await getDoc(gameRef);
 
       if (!gameSnap.exists()) {
         set({ disconnectionMessage: "Game not found or has been ended by the host." });
-        isJoining = false;
-        return;
+        return "failed";
       }
 
       const gameData = gameSnap.data();
@@ -153,8 +151,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       if (existingPlayers.length >= gameInfo.maxPlayers) {
         set({ disconnectionMessage: "This game lobby is already full." });
-        isJoining = false;
-        return;
+        return "failed";
       }
 
       get().resetStore();
@@ -179,6 +176,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       await updateDoc(gameRef, { players: arrayUnion(guestPlayer) });
       useConnectionStore.getState().initAsGuest(id, guestId, "p1");
+      return "success";
     } finally {
       isJoining = false;
     }
@@ -195,18 +193,22 @@ export const useGameStore = create<GameState>((set, get) => ({
     get().notifyLeave();
     const { isHost } = useConnectionStore.getState();
     const { gameId } = get();
+
     if (isHost && gameId) {
       await deleteDoc(doc(db, "games", gameId));
     }
-    useConnectionStore.getState().leaveSession();
+
     get().resetStore();
   },
 
   resetSession: () => {
-    get().unsubscribes.forEach((unsub) => unsub());
     useConnectionStore.getState().leaveSession();
+    get().unsubscribes.forEach((unsub) => unsub());
+
     set((state) => ({
       gameId: null,
+      gameName: state.gameName,
+      gameInfo: state.gameInfo,
       playerId: null,
       players: [],
       gamePhase: "lobby",
@@ -221,6 +223,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   resetStore: () => {
+    useConnectionStore.getState().leaveSession();
     get().unsubscribes.forEach((unsub) => unsub());
     set({
       gameId: null,

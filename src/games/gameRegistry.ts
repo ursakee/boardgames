@@ -2,17 +2,19 @@ import React from "react";
 import type { GameRegistryEntry } from "../types";
 import type { TicTacToeGameState } from "./tic-tac-toe/types";
 
-// Import the logic and components for each game
 import {
   getInitialState as getTicTacToeState,
-  handleAction as handleTicTacToeAction, // MODIFIED: Import handleAction instead
+  handleAction as handleTicTacToeAction,
   getGameStatus as getTicTacToeStatus,
   isGameOver as isTicTacToeGameOver,
-  isTurnOf as isTicTacToeTurnOf, // MODIFIED: Import the new turn function
-} from "./tic-tac-toe/logic"; // NOTE: No need for '/index.ts' in the path
-const TicTacToeBoard = React.lazy(() => import("./tic-tac-toe/components/TicTacToeBoard"));
+  isTurnOf as isTicTacToeTurnOf,
+} from "./tic-tac-toe/logic";
 
-// The master list of all playable games in the hub.
+// Lazily import all components, including the new page components
+const TicTacToeBoard = React.lazy(() => import("./tic-tac-toe/components/TicTacToeBoard"));
+const TicTacToeLobbyPage = React.lazy(() => import("./tic-tac-toe/pages/TicTacToeLobbyPage"));
+const TicTacToeGamePage = React.lazy(() => import("./tic-tac-toe/pages/TicTacToeGamePage"));
+
 export const gameRegistry: GameRegistryEntry[] = [
   {
     id: "tic-tac-toe",
@@ -20,15 +22,17 @@ export const gameRegistry: GameRegistryEntry[] = [
     minPlayers: 2,
     maxPlayers: 2,
     getInitialState: getTicTacToeState,
-    handleAction: handleTicTacToeAction, // MODIFIED: Use handleAction
+    handleAction: handleTicTacToeAction,
     getGameStatus: getTicTacToeStatus,
     isGameOver: isTicTacToeGameOver,
-    isTurnOf: isTicTacToeTurnOf, // MODIFIED: Add the new turn function
+    isTurnOf: isTicTacToeTurnOf,
     BoardComponent: TicTacToeBoard,
-  } as GameRegistryEntry<TicTacToeGameState>, // Type assertion for specific game state
+
+    // NEW: Add the page components to the registry
+    LobbyPageComponent: TicTacToeLobbyPage,
+    GamePageComponent: TicTacToeGamePage,
+  } as GameRegistryEntry<TicTacToeGameState>,
   // --- Add new games here ---
-  // e.g., { id: 'connect-four', ... }
 ];
 
-// A helper to easily find a game's configuration by its ID.
 export const findGame = (id: string) => gameRegistry.find((g) => g.id === id);

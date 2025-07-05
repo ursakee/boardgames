@@ -4,19 +4,21 @@ import type { TicTacToeGameState } from "../types";
 import { useGameStore } from "../../../store/gameStore";
 import { LogOut } from "lucide-react";
 
-const TicTacToeBoard: React.FC<Omit<GameBoardComponentProps<TicTacToeGameState>, "gameId">> = ({
+const TicTacToeBoard: React.FC<GameBoardComponentProps<TicTacToeGameState>> = ({
   gameState,
   statusMessage,
   isGameOver,
   isMyTurn,
-  onPerformAction, // MODIFIED
+  onPerformAction,
   onLeaveGame,
 }) => {
-  const { gameId, playerId, players } = useGameStore();
+  // MODIFIED: Select state individually to prevent infinite loops.
+  const gameId = useGameStore((state) => state.gameId);
+  const playerId = useGameStore((state) => state.playerId);
+  const players = useGameStore((state) => state.players);
 
   const handleSquareClick = (index: number) => {
     if (isMyTurn && !gameState.board[index] && !isGameOver) {
-      // Dispatch a structured action instead of just the move
       onPerformAction({ type: "MAKE_MOVE", payload: index });
     }
   };
@@ -32,7 +34,7 @@ const TicTacToeBoard: React.FC<Omit<GameBoardComponentProps<TicTacToeGameState>,
       </div>
       <div className="flex justify-between items-center bg-slate-700/50 p-3 rounded-md">
         <p className="text-lg text-white">
-          You are:
+          You are:{" "}
           <span className="font-bold text-2xl">
             {localPlayer?.username} ({localPlayerSymbol})
           </span>

@@ -3,34 +3,35 @@ import { PlusCircle, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useGameStore } from "../../../store/gameStore";
 
-interface GameLobbyProps {
+interface LobbyLayoutProps {
   gameName: string;
+  gameIdSlug: string;
   onCreateGame: () => void;
-  disconnectionMessage?: string | null;
 }
 
-const GameLobby: React.FC<GameLobbyProps> = ({ gameName, onCreateGame, disconnectionMessage }) => {
+const LobbyLayout: React.FC<LobbyLayoutProps> = ({ gameName, gameIdSlug, onCreateGame }) => {
   const navigate = useNavigate();
+
+  // MODIFIED: Select each piece of state individually to prevent re-creating objects on every render.
+  const disconnectionMessage = useGameStore((state) => state.disconnectionMessage);
   const clearDisconnectionMessage = useGameStore((state) => state.clearDisconnectionMessage);
 
   useEffect(() => {
-    // This effect now handles the temporary display of the error message.
+    // This effect handles the temporary display of an error message (e.g., game not found).
+    // After 3 seconds, it clears the message and ensures the URL is clean.
     if (disconnectionMessage) {
       const timer = setTimeout(() => {
-        // After 3 seconds, navigate to the base lobby URL and clear the message.
-        // This removes the invalid game ID from the URL, fixing the loop.
-        const gameIdSlug = gameName.toLowerCase().replace(/\s+/g, "-");
         navigate(`/game/${gameIdSlug}`, { replace: true });
         clearDisconnectionMessage();
       }, 3000);
       return () => clearTimeout(timer);
     }
-  }, [disconnectionMessage, clearDisconnectionMessage, navigate, gameName]);
+  }, [disconnectionMessage, clearDisconnectionMessage, navigate, gameIdSlug]);
 
   return (
     <div className="w-full max-w-md p-8 space-y-6 bg-slate-800 rounded-2xl shadow-2xl shadow-slate-950/50 border border-slate-700">
       {disconnectionMessage && (
-        <div className="p-4 mb-4 text-center text-yellow-200 bg-yellow-900/50 border border-yellow-700 rounded-lg flex items-center justify-center gap-3">
+        <div className="p-4 mb-4 text-center text-yellow-200 bg-yellow-900/50 border-yellow-700 rounded-lg flex items-center justify-center gap-3">
           <Info size={24} /> <p className="font-semibold">{disconnectionMessage}</p>
         </div>
       )}
@@ -49,4 +50,4 @@ const GameLobby: React.FC<GameLobbyProps> = ({ gameName, onCreateGame, disconnec
   );
 };
 
-export default GameLobby;
+export default LobbyLayout;
