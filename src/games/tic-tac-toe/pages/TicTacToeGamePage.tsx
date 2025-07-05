@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import PreGameLobbyLayout from "../../../features/game/layouts/PreGameLobbyLayout";
+import PreGameLobbyLayout from "../../../layouts/PreGameLobbyLayout";
 import TicTacToeBoard from "../components/TicTacToeBoard";
 import { useGameSession } from "../../../hooks/useGameSession";
 import { useGameStore } from "../../../store/gameStore";

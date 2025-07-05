@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { PlusCircle, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useGameStore } from "../../../store/gameStore";
+import { useGameStore } from "../store/gameStore";
 
 interface LobbyLayoutProps {
   gameName: string;

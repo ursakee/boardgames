@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Users, LogOut, Play, Copy, Check, RotateCcw, WifiOff, Loader } from "lucide-react";
-import type { Player } from "../../../store/gameStore";
-import type { ConnectionState } from "../../../store/connectionStore";
+import type { Player } from "../store/gameStore";
+import type { ConnectionState } from "../store/connectionStore";
 
 interface PreGameLobbyLayoutProps {
   gameName: string;

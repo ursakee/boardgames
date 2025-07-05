@@ -1,7 +1,7 @@
 import React from "react";
 import { Routes, Route } from "react-router-dom";
-import HomePage from "./features/home/pages/HomePage";
-import GamePage from "./features/game/pages/GamePage";
+import HomePage from "./pages/HomePage";
+import GamePage from "./pages/GamePage";
 
 const App: React.FC = () => {
   return (

@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { useGameStore } from "../../../store/gameStore";
-import { findGame } from "../../../games/gameRegistry";
+import { useGameStore } from "../store/gameStore";
+import { findGame } from "../games/gameRegistry";
 
 const GamePage: React.FC = () => {
   const { gameName, gameId } = useParams<{ gameName: string; gameId?: string }>();

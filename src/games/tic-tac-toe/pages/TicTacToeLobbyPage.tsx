@@ -1,7 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useGameStore } from "../../../store/gameStore";
-import LobbyLayout from "../../../features/game/layouts/LobbyLayout";
+import LobbyLayout from "../../../layouts/LobbyLayout";
 import { findGame } from "../../gameRegistry";
 
 const TicTacToeLobbyPage: React.FC = () => {
