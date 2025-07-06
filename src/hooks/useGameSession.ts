@@ -24,6 +24,7 @@ export const useGameSession = () => {
     performAction,
     startGame,
     playAgain,
+    returnToLobby,
     resetSession,
   } = useGameStore();
 
@@ -42,9 +43,8 @@ export const useGameSession = () => {
     gameState,
     isHost,
     peerConnectionStates,
-    localPlayer,
+    localPlayer, // Actions
 
-    // Actions
     createGame,
     joinGame,
     leaveGame,
@@ -53,6 +53,7 @@ export const useGameSession = () => {
     performAction,
     startGame,
     playAgain,
+    returnToLobby,
     resetSession,
   };
 };

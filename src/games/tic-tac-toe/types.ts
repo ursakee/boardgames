@@ -7,4 +7,5 @@ export interface TicTacToeGameState {
   isNext: TicTacToeValue;
   winner: TicTacToeValue | "draw" | null;
   playerMap: { [id: PlayerId]: TicTacToeValue };
+  scores: { [id: PlayerId]: number };
 }

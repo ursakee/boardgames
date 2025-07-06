@@ -2,10 +2,10 @@ import type { Player } from "../../../store/gameStore";
 import type { PlayerId, GameAction } from "../../../types";
 import type { TicTacToeGameState, TicTacToeValue } from "../types";
 
-export const getInitialState = (playerIds: PlayerId[]): TicTacToeGameState => {
-  // Randomly assign 'X' and 'O' to the players. 'X' will always go first.
+export const getInitialState = (playerIds: PlayerId[], currentState?: TicTacToeGameState): TicTacToeGameState => {
   const [p1, p2] = playerIds;
   const isPlayer1_X = Math.random() < 0.5;
+  const scores = currentState?.scores || { [p1]: 0, [p2]: 0 };
 
   return {
     board: Array(9).fill(null),
@@ -15,6 +15,7 @@ export const getInitialState = (playerIds: PlayerId[]): TicTacToeGameState => {
       [p1]: isPlayer1_X ? "X" : "O",
       [p2]: isPlayer1_X ? "O" : "X",
     },
+    scores,
   };
 };
 
@@ -56,6 +57,15 @@ export const handleAction = (currentState: TicTacToeGameState, action: GameActio
 
   if (!winner && newBoard.every(Boolean)) {
     winner = "draw";
+  } // Create a mutable copy of the scores to update them.
+
+  const newScores = { ...currentState.scores }; // If there's a winner (and it's not a draw), find the winning player and increment their score.
+
+  if (winner && winner !== "draw") {
+    const winnerId = Object.keys(currentState.playerMap).find((id) => currentState.playerMap[id] === winner);
+    if (winnerId) {
+      newScores[winnerId] = (newScores[winnerId] || 0) + 1;
+    }
   }
 
   return {
@@ -63,6 +73,7 @@ export const handleAction = (currentState: TicTacToeGameState, action: GameActio
     board: newBoard,
     isNext: newIsNext,
     winner,
+    scores: newScores,
   };
 };
 
