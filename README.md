@@ -1,69 +1,16 @@
-# React + TypeScript + Vite
+# Board Game Hub
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A web-based, real-time multiplayer board game platform. This hub allows friends to jump in and play classic and modern board games directly in their browser.
 
-Currently, two official plugins are available:
+The core of the experience is peer-to-peer connectivity using **WebRTC**, which ensures low-latency gameplay. Firebase is used only as a signaling server to help players find and connect to each other. Once the connection is established, all game data is sent directly between the players' browsers.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## ✨ Features
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      ...tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      ...tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      ...tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- **Visual Game Menu**: A simple, clickable grid of games on the landing page.
+- **Link-Based Lobbies**: Create a game room and share a unique link to invite friends instantly.
+- **No Accounts Needed**: Just enter a username and start playing.
+- **Real-Time & Peer-to-Peer**: Ultra-fast gameplay using WebRTC for direct P2P connections.
+- **Dynamic Lobbies**: See players join and change their names in real-time.
+- **Graceful Disconnects**: Handles players leaving or closing their tabs, returning the room to a lobby state.
+- **Scalable by Design**: A clean and organized project structure makes it incredibly easy to add new games.
+- **Session Score Tracking**: Scores are kept for the duration of the session across multiple rounds.
