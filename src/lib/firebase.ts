@@ -2,13 +2,13 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBaY5uq9kIEFjfr9cIEYOzTT4TykRdui-c",
-  authDomain: "boardgames-cf5a1.firebaseapp.com",
-  projectId: "boardgames-cf5a1",
-  storageBucket: "boardgames-cf5a1.firebasestorage.app",
-  messagingSenderId: "764257197121",
-  appId: "1:764257197121:web:b80d24917356f51ab47ac0",
-  measurementId: "G-9PS0XW6GQ3",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 const app = initializeApp(firebaseConfig);
