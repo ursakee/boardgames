@@ -1,38 +1,20 @@
-import React from "react";
 import type { GameRegistryEntry } from "../types";
-import type { TicTacToeGameState } from "./tic-tac-toe/types";
 
-import {
-  getInitialState as getTicTacToeState,
-  handleAction as handleTicTacToeAction,
-  getGameStatus as getTicTacToeStatus,
-  isGameOver as isTicTacToeGameOver,
-  isTurnOf as isTicTacToeTurnOf,
-} from "./tic-tac-toe/logic";
+// This is the new, dynamic game registry.
+// It uses Vite's `import.meta.glob` to automatically find and load games.
+// The `eager: true` option loads the modules immediately.
+const gameModules = import.meta.glob("./*/registry.ts", { eager: true });
 
-// Lazily import all components, including the new page components
-const TicTacToeBoard = React.lazy(() => import("./tic-tac-toe/components/TicTacToeBoard"));
-const TicTacToeLobbyPage = React.lazy(() => import("./tic-tac-toe/pages/TicTacToeLobbyPage"));
-const TicTacToeGamePage = React.lazy(() => import("./tic-tac-toe/pages/TicTacToeGamePage"));
+// We process the loaded modules into the clean array structure the app expects.
+export const gameRegistry: GameRegistryEntry[] = Object.values(gameModules).map((module: any) => module.default);
 
-export const gameRegistry: GameRegistryEntry[] = [
-  {
-    id: "tic-tac-toe",
-    displayName: "Tic Tac Toe",
-    minPlayers: 2,
-    maxPlayers: 2,
-    getInitialState: getTicTacToeState,
-    handleAction: handleTicTacToeAction,
-    getGameStatus: getTicTacToeStatus,
-    isGameOver: isTicTacToeGameOver,
-    isTurnOf: isTicTacToeTurnOf,
-    BoardComponent: TicTacToeBoard,
-
-    // NEW: Add the page components to the registry
-    LobbyPageComponent: TicTacToeLobbyPage,
-    GamePageComponent: TicTacToeGamePage,
-  } as GameRegistryEntry<TicTacToeGameState>,
-  // --- Add new games here ---
-];
-
-export const findGame = (id: string) => gameRegistry.find((g) => g.id === id);
+/**
+ * Finds a game in the registry by its unique ID.
+ * This function remains the same, but now operates on the dynamically loaded registry.
+ * @param id The unique identifier for the game (e.g., "tic-tac-toe").
+ * @returns The game registry entry if found, otherwise undefined.
+ */
+export const findGame = (id: string | undefined): GameRegistryEntry | undefined => {
+  if (!id) return undefined;
+  return gameRegistry.find((g) => g.id === id);
+};
