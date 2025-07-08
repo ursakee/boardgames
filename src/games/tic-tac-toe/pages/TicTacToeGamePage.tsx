@@ -16,6 +16,7 @@ const TicTacToeGamePage: React.FC = () => {
     gameInfo,
     gamePhase,
     gameState,
+    gameOptions,
     players,
     localPlayer,
     isHost,
@@ -23,6 +24,7 @@ const TicTacToeGamePage: React.FC = () => {
     joinGame,
     leaveGame,
     setMyUsername,
+    setGameOptions,
     startGame,
     returnToLobby,
     performAction,
@@ -30,6 +32,7 @@ const TicTacToeGamePage: React.FC = () => {
   } = useGameSession();
 
   const [currentUsername, setCurrentUsername] = useState(localPlayer?.username || "");
+  const [turnTimeLeft, setTurnTimeLeft] = useState<number | null>(null);
   const disconnectionMessage = useGameStore((state) => state.disconnectionMessage);
 
   useEffect(() => {
@@ -57,6 +60,60 @@ const TicTacToeGamePage: React.FC = () => {
     }
   }, [disconnectionMessage, activeGameId, gameName, navigate, resetSession]);
 
+  const gameStatus = useMemo(() => {
+    if (!gameInfo || !gameState) return { message: "", isGameOver: false, isMyTurn: false };
+
+    const isMyTurn = gameInfo.isTurnOf(gameState, localPlayer?.id || "");
+    const baseMessage = gameInfo.getGameStatus(gameState, players);
+
+    return {
+      message: baseMessage,
+      isGameOver: gameInfo.isGameOver(gameState),
+      isMyTurn: isMyTurn,
+    };
+  }, [gameState, gameInfo, players, localPlayer, gamePhase]);
+
+  // Effect for managing the turn timer
+  useEffect(() => {
+    if (gamePhase !== "in-game" || !gameState || gameStatus.isGameOver) {
+      setTurnTimeLeft(null); // No timer outside of active gameplay
+      return;
+    }
+
+    const timerDuration = gameState.options?.turnTimer;
+    if (timerDuration <= 0) {
+      setTurnTimeLeft(null); // No timer if set to unlimited
+      return;
+    }
+
+    // Start a new timer when the turn changes
+    setTurnTimeLeft(timerDuration);
+
+    const intervalId = setInterval(() => {
+      setTurnTimeLeft((prevTime) => {
+        if (prevTime === null || prevTime <= 1) {
+          clearInterval(intervalId);
+          // Check if it's my turn before making a random move
+          if (gameStatus.isMyTurn) {
+            const emptySquares = gameState.board
+              .map((val: any, index: number) => (val === null ? index : null))
+              .filter((val: any): val is number => val !== null);
+
+            if (emptySquares.length > 0) {
+              const randomMove = emptySquares[Math.floor(Math.random() * emptySquares.length)];
+              performAction({ type: "MAKE_MOVE", payload: randomMove });
+            }
+          }
+          return null;
+        }
+        return prevTime - 1;
+      });
+    }, 1000);
+
+    // Cleanup interval on turn change or component unmount
+    return () => clearInterval(intervalId);
+  }, [gameState?.isNext, gamePhase, gameStatus.isGameOver]); // Reruns when turn changes
+
   const handleLeaveGame = async () => {
     setIsLeaving(true);
     await leaveGame();
@@ -74,21 +131,17 @@ const TicTacToeGamePage: React.FC = () => {
     }
   };
 
+  const handleOptionChange = (optionId: string, value: any) => {
+    const numericValue = /^\d+$/.test(value) ? Number(value) : value;
+    setGameOptions({ [optionId]: numericValue });
+  };
+
   const handleCopyLink = () => {
     navigator.clipboard.writeText(window.location.href).then(() => {
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
     });
   };
-
-  const gameStatus = useMemo(() => {
-    if (!gameInfo || !gameState) return { message: "", isGameOver: false, isMyTurn: false };
-    return {
-      message: gameInfo.getGameStatus(gameState, players),
-      isGameOver: gameInfo.isGameOver(gameState),
-      isMyTurn: gameInfo.isTurnOf(gameState, localPlayer?.id || ""),
-    };
-  }, [gameState, gameInfo, players, localPlayer]);
 
   const areAllPlayersConnected = useMemo(() => {
     if (!gameInfo || players.length < gameInfo.minPlayers) return false;
@@ -161,6 +214,7 @@ const TicTacToeGamePage: React.FC = () => {
           statusMessage={gameStatus.message}
           isGameOver={true}
           isMyTurn={false}
+          turnTimeLeft={null}
           onPerformAction={() => {}}
           onLeaveGame={handleLeaveGame}
         />
@@ -185,6 +239,7 @@ const TicTacToeGamePage: React.FC = () => {
                 </button>
               </div>
             )}
+            {!isHost && <p className="mt-8 text-slate-300">Waiting for the host to start the next round...</p>}
           </div>
         </div>
       </div>
@@ -198,6 +253,7 @@ const TicTacToeGamePage: React.FC = () => {
         statusMessage={gameStatus.message}
         isGameOver={gameStatus.isGameOver}
         isMyTurn={gameStatus.isMyTurn}
+        turnTimeLeft={turnTimeLeft}
         onPerformAction={performAction}
         onLeaveGame={handleLeaveGame}
       />
@@ -252,6 +308,32 @@ const TicTacToeGamePage: React.FC = () => {
               </>
             )}
           </button>
+
+          <div className="space-y-4 pt-4 border-t border-slate-700/50">
+            <h3 className="font-semibold text-slate-300">Game Options</h3>
+            {gameInfo.gameOptions?.map((option) => (
+              <div key={option.id}>
+                <label htmlFor={option.id} className="text-sm font-medium text-slate-400">
+                  {option.label}
+                </label>
+                {option.type === "select" && (
+                  <select
+                    id={option.id}
+                    value={gameOptions[option.id]}
+                    onChange={(e) => handleOptionChange(option.id, e.target.value)}
+                    disabled={!isHost}
+                    className="mt-1 block w-full px-3 py-2 text-white bg-slate-700 border border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed"
+                  >
+                    {option.choices?.map((choice) => (
+                      <option key={choice.value} value={choice.value}>
+                        {choice.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="space-y-2">

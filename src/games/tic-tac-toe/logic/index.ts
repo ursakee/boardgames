@@ -2,10 +2,18 @@ import type { Player } from "../../../store/gameStore";
 import type { PlayerId, GameAction } from "../../../types";
 import type { TicTacToeGameState, TicTacToeValue } from "../types";
 
-export const getInitialState = (playerIds: PlayerId[], currentState?: TicTacToeGameState): TicTacToeGameState => {
+export const getInitialState = (
+  playerIds: PlayerId[],
+  currentState?: TicTacToeGameState,
+  options?: Record<string, any>
+): TicTacToeGameState => {
   const [p1, p2] = playerIds;
   const isPlayer1_X = Math.random() < 0.5;
   const scores = currentState?.scores || { [p1]: 0, [p2]: 0 };
+
+  const newOptions = {
+    turnTimer: options?.turnTimer ?? currentState?.options?.turnTimer ?? 0,
+  };
 
   return {
     board: Array(9).fill(null),
@@ -16,6 +24,7 @@ export const getInitialState = (playerIds: PlayerId[], currentState?: TicTacToeG
       [p2]: isPlayer1_X ? "O" : "X",
     },
     scores,
+    options: newOptions,
   };
 };
 
@@ -98,5 +107,7 @@ export const getGameStatus = (gameState: TicTacToeGameState, players: Player[]):
   }
 
   const nextPlayerName = getPlayerBySymbol(gameState.isNext)?.username || `Player ${gameState.isNext}`;
-  return `${nextPlayerName}'s Turn`;
+  const timer = gameState.options?.turnTimer;
+  const timerText = timer && timer > 0 ? ` (${timer}s)` : "";
+  return `${nextPlayerName}'s Turn${timerText}`;
 };

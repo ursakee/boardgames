@@ -16,6 +16,21 @@ const ticTacToeGameEntry: GameRegistryEntry<TicTacToeGameState> = {
   minPlayers: 2,
   maxPlayers: 2,
 
+  gameOptions: [
+    {
+      id: "turnTimer",
+      label: "Turn Timer",
+      type: "select",
+      defaultValue: 0,
+      choices: [
+        { label: "Unlimited", value: 0 },
+        { label: "2 Seconds", value: 2 },
+        { label: "5 Seconds", value: 5 },
+        { label: "10 Seconds", value: 10 },
+      ],
+    },
+  ],
+
   // Game Logic Functions
   getInitialState: getInitialState,
   handleAction: handleAction,

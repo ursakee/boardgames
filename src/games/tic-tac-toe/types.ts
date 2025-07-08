@@ -8,4 +8,7 @@ export interface TicTacToeGameState {
   winner: TicTacToeValue | "draw" | null;
   playerMap: { [id: PlayerId]: TicTacToeValue };
   scores: { [id: PlayerId]: number };
+  options: {
+    turnTimer: number;
+  };
 }

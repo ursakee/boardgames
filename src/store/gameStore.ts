@@ -31,11 +31,15 @@ export interface Player {
 type GameMessage =
   | { type: "player_leaving" }
   | { type: "username_change"; payload: { newUsername: string } }
+  | { type: "game_options_change"; payload: Record<string, any> }
   | { type: "game_action"; payload: GameAction }
   | { type: "start_game"; payload: any }
   | { type: "game_state_update"; payload: any }
   | { type: "sync_players"; payload: Player[] }
-  | { type: "sync_full_game_state"; payload: { players: Player[]; gameState: any; gamePhase: GamePhase } }
+  | {
+      type: "sync_full_game_state";
+      payload: { players: Player[]; gameState: any; gamePhase: GamePhase; gameOptions: Record<string, any> };
+    }
   | { type: "return_to_lobby" };
 
 // --- Main State and Actions Interface ---
@@ -47,6 +51,7 @@ interface GameState {
   players: Player[];
   gamePhase: GamePhase;
   gameState: any;
+  gameOptions: Record<string, any>;
   disconnectionMessage: string | null;
   unsubscribes: Unsubscribe[];
 
@@ -57,6 +62,7 @@ interface GameState {
   resetSession: () => void;
   clearDisconnectionMessage: () => void;
   setMyUsername: (newUsername: string) => void;
+  setGameOptions: (newOptions: Record<string, any>) => void;
   performAction: (action: Omit<GameAction, "playerId">) => void;
   startGame: () => void;
   playAgain: () => void;
@@ -76,6 +82,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   players: [],
   gamePhase: "lobby",
   gameState: null,
+  gameOptions: {},
   disconnectionMessage: null,
   unsubscribes: [],
 
@@ -91,6 +98,12 @@ export const useGameStore = create<GameState>((set, get) => ({
     const newGameId = doc(collection(db, "games")).id;
     const hostPlayer: Player = { id: hostId, username: "Player 1" };
 
+    const defaultOptions =
+      gameInfo.gameOptions?.reduce((acc, opt) => {
+        acc[opt.id] = opt.defaultValue;
+        return acc;
+      }, {} as Record<string, any>) || {};
+
     set({
       gameId: newGameId,
       gameName,
@@ -98,21 +111,27 @@ export const useGameStore = create<GameState>((set, get) => ({
       playerId: hostId,
       players: [hostPlayer],
       gamePhase: "lobby",
+      gameOptions: defaultOptions,
     });
 
     useConnectionStore.getState().initAsHost(newGameId);
-    await setDoc(doc(db, "games", newGameId), { players: [hostPlayer], connections: {}, gamePhase: "lobby" });
+    await setDoc(doc(db, "games", newGameId), {
+      players: [hostPlayer],
+      connections: {},
+      gamePhase: "lobby",
+      options: defaultOptions,
+    });
 
     const unsub = onSnapshot(doc(db, "games", newGameId), (snapshot) => {
       if (!snapshot.exists()) {
         get().leaveGame();
         return;
       }
-      const { players: updatedPlayers = [] } = snapshot.data();
+      const { players: updatedPlayers = [], options: updatedOptions = {} } = snapshot.data();
       const currentPlayers = get().players;
 
       if (get().gameId === newGameId) {
-        set({ players: updatedPlayers });
+        set({ players: updatedPlayers, gameOptions: updatedOptions });
 
         if (updatedPlayers.length > currentPlayers.length) {
           const newPlayer = updatedPlayers.find((p: Player) => !currentPlayers.some((cp) => cp.id === p.id));
@@ -166,6 +185,9 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (get().gamePhase !== "in-game" && data.gameState) {
             set({ gameState: data.gameState });
           }
+          if (data.options) {
+            set({ gameOptions: data.options });
+          }
         }
       });
 
@@ -178,6 +200,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         gameInfo,
         playerId: guestId,
         gamePhase: "lobby",
+        gameOptions: gameData.options || {},
         unsubscribes: [unsub],
       });
 
@@ -220,6 +243,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       players: [],
       gamePhase: "lobby",
       gameState: null,
+      gameOptions: {},
       unsubscribes: [],
       disconnectionMessage: state.disconnectionMessage,
     }));
@@ -240,6 +264,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       players: [],
       gamePhase: "lobby",
       gameState: null,
+      gameOptions: {},
       disconnectionMessage: null,
       unsubscribes: [],
     });
@@ -260,6 +285,17 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
   },
 
+  setGameOptions: (newOptions: Record<string, any>) => {
+    const { gameId, gameOptions } = get();
+    const { isHost } = useConnectionStore.getState();
+    if (!isHost || !gameId) return;
+
+    const updatedOptions = { ...gameOptions, ...newOptions };
+    set({ gameOptions: updatedOptions });
+    updateDoc(doc(db, "games", gameId), { options: updatedOptions });
+    // No need to broadcast here, Firestore snapshot listener will handle it
+  },
+
   performAction: (action: Omit<GameAction, "playerId">) => {
     const { playerId, gamePhase } = get();
     const { isHost, sendMessageToHost } = useConnectionStore.getState();
@@ -274,13 +310,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   startGame: () => {
-    const { gameInfo, players, gameId, gameState } = get();
+    const { gameInfo, players, gameId, gameState, gameOptions } = get();
     const { isHost, broadcastMessage } = useConnectionStore.getState();
     if (!isHost || !gameInfo) return;
 
     const newGameState = gameInfo.getInitialState(
       players.map((p) => p.id),
-      gameState
+      gameState,
+      gameOptions // Pass the selected options
     );
     const newPhase = "in-game";
     set({ gameState: newGameState, gamePhase: newPhase });
@@ -300,18 +337,18 @@ export const useGameStore = create<GameState>((set, get) => ({
     const { gameId } = get();
     if (!isHost || !gameId) return;
 
-    set({ gamePhase: "lobby" });
+    set({ gamePhase: "lobby", gameState: null }); // Clear game board on return
     broadcastMessage({ type: "return_to_lobby" });
-    updateDoc(doc(db, "games", gameId), { gamePhase: "lobby" });
+    updateDoc(doc(db, "games", gameId), { gamePhase: "lobby", gameState: null });
   },
 
   handlePlayerConnect: (connectedPlayerId: PlayerId) => {
     const { isHost } = useConnectionStore.getState();
     if (isHost) {
-      const { players, gameState, gamePhase } = get();
+      const { players, gameState, gamePhase, gameOptions } = get();
       useConnectionStore.getState().sendMessageToGuest(connectedPlayerId, {
         type: "sync_full_game_state",
-        payload: { players, gameState, gamePhase },
+        payload: { players, gameState, gamePhase, gameOptions },
       });
     }
   },
@@ -353,19 +390,19 @@ export const useGameStore = create<GameState>((set, get) => ({
   handlePlayerDisconnect: async (disconnectedPlayerId: PlayerId) => {
     const { isHost, broadcastMessage } = useConnectionStore.getState();
     if (isHost) {
-      const { gameId, players, gameInfo } = get();
+      const { gameId, players, gameOptions } = get();
       const updatedPlayers = players.filter((p) => p.id !== disconnectedPlayerId);
 
       if (updatedPlayers.length < players.length) {
-        // Create a new initial state to reset scores and the board
-        const newGameState = gameInfo?.getInitialState(updatedPlayers.map((p) => p.id)) || null;
-        const newPhase = "lobby"; // Update local state for the host
+        // We reset the game to lobby, but keep scores and options
+        const newGameState = null; // Clear the board
+        const newPhase = "lobby";
 
         set({
           players: updatedPlayers,
           gameState: newGameState,
           gamePhase: newPhase,
-        }); // Update Firestore
+        });
 
         if (gameId) {
           const gameRef = doc(db, "games", gameId);
@@ -379,7 +416,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
         broadcastMessage({
           type: "sync_full_game_state",
-          payload: { players: updatedPlayers, gameState: newGameState, gamePhase: newPhase },
+          payload: { players: updatedPlayers, gameState: newGameState, gamePhase: newPhase, gameOptions },
         });
       }
     } else {
@@ -405,6 +442,7 @@ useConnectionStore.setState({
           players: message.payload.players,
           gameState: message.payload.gameState,
           gamePhase: message.payload.gamePhase,
+          gameOptions: message.payload.gameOptions,
         });
         break;
       case "sync_players":
@@ -422,7 +460,7 @@ useConnectionStore.setState({
         });
         break;
       case "return_to_lobby":
-        setState({ gamePhase: "lobby" });
+        setState({ gamePhase: "lobby", gameState: null });
         break;
     }
   },

@@ -18,12 +18,21 @@ export interface GameBoardComponentProps<TGameState> {
   onLeaveGame: () => void;
 }
 
+export interface GameOption {
+  id: string;
+  label: string;
+  type: "select" | "number" | "boolean";
+  defaultValue: string | number | boolean;
+  choices?: { label: string; value: string | number }[];
+}
+
 export type GameRegistryEntry<TGameState = any> = {
   id: string;
   displayName: string;
   minPlayers: number;
   maxPlayers: number;
-  getInitialState: (playerIds: PlayerId[], currentState?: TGameState) => TGameState;
+  gameOptions?: GameOption[];
+  getInitialState: (playerIds: PlayerId[], currentState?: TGameState, options?: Record<string, any>) => TGameState;
   handleAction: (currentState: TGameState, action: GameAction) => TGameState;
   getGameStatus: (gameState: TGameState, players: Player[]) => string;
   isGameOver: (gameState: TGameState) => boolean;
