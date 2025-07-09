@@ -13,6 +13,7 @@ const TicTacToeGamePage = React.lazy(() => import("./pages/TicTacToeGamePage"));
 const ticTacToeGameEntry: GameRegistryEntry<TicTacToeGameState> = {
   id: "tic-tac-toe",
   displayName: "Tic Tac Toe",
+  description: "The classic game of X's and O's. First to get three in a row wins.",
   minPlayers: 2,
   maxPlayers: 2,
 

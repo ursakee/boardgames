@@ -29,6 +29,7 @@ export interface GameOption {
 export type GameRegistryEntry<TGameState = any> = {
   id: string;
   displayName: string;
+  description: string;
   minPlayers: number;
   maxPlayers: number;
   gameOptions?: GameOption[];
