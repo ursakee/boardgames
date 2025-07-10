@@ -51,12 +51,13 @@ export interface PlayerState {
   fixedTrainId: number | null;
   gridState: GridState | null;
   submitted: boolean;
+  submissionResult: "correct" | "incorrect" | null;
 }
 
 export interface BrainTrainGameState {
   puzzle: BrainTrainPuzzle;
   playerStates: Record<PlayerId, PlayerState>;
-  winner: PlayerId | "incorrect" | null;
+  winner: PlayerId | null;
   options: {
     difficulty: Difficulty;
   };

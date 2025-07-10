@@ -9,19 +9,19 @@ export const getInitialState = (
   _currentState: BrainTrainGameState | undefined,
   options?: Record<string, any>
 ): BrainTrainGameState => {
-  // Safely access difficulty with a fallback, matching the generic interface.
   const difficulty = (options?.difficulty as Difficulty) || "easy";
   const puzzle = generatePuzzle(difficulty);
 
   const fixedTrainForAllPlayers = puzzle.trains[0];
 
   const playerStates: Record<PlayerId, PlayerState> = {};
-  playerIds.forEach((playerId, _) => {
+  playerIds.forEach((playerId) => {
     playerStates[playerId] = {
       id: playerId,
       fixedTrainId: fixedTrainForAllPlayers?.trainId ?? null,
       gridState: null,
       submitted: false,
+      submissionResult: null,
     };
   });
 
@@ -50,22 +50,13 @@ export const handleAction = (currentState: BrainTrainGameState, action: GameActi
   const isCorrect = validateSolution(playerGridState, currentState.puzzle);
 
   const newPlayerStates = JSON.parse(JSON.stringify(currentState.playerStates));
-  newPlayerStates[action.playerId] = {
-    ...newPlayerStates[action.playerId],
-    submitted: true,
-  };
+  const playerState = newPlayerStates[action.playerId];
+  playerState.submitted = true;
+  playerState.submissionResult = isCorrect ? "correct" : "incorrect";
 
   let winner: BrainTrainGameState["winner"] = currentState.winner;
-
   if (isCorrect) {
     winner = action.playerId;
-  } else {
-    const playerIds = Object.keys(currentState.playerStates);
-    if (playerIds.length <= 2) {
-      winner = playerIds.find((id) => id !== action.playerId)!;
-    } else {
-      winner = "incorrect";
-    }
   }
 
   return {
@@ -76,20 +67,20 @@ export const handleAction = (currentState: BrainTrainGameState, action: GameActi
 };
 
 export const isGameOver = (gameState: BrainTrainGameState): boolean => {
-  return gameState.winner !== null;
+  return gameState.winner !== null || Object.values(gameState.playerStates).every((p) => p.submitted);
 };
 
 export const isTurnOf = (gameState: BrainTrainGameState, playerId: PlayerId): boolean => {
-  return !gameState.playerStates[playerId]?.submitted && !gameState.winner;
+  return !isGameOver(gameState) && !gameState.playerStates[playerId]?.submitted;
 };
 
 export const getGameStatus = (gameState: BrainTrainGameState, players: Player[]): string => {
   if (gameState.winner) {
-    if (gameState.winner === "incorrect") {
-      return "Incorrect Submission! Game Over.";
-    }
     const winnerPlayer = players.find((p) => p.id === gameState.winner);
     return `${winnerPlayer?.username || "A player"} wins!`;
+  }
+  if (isGameOver(gameState) && !gameState.winner) {
+    return "All solutions were incorrect. It's a draw!";
   }
   return "Solve the puzzle!";
 };

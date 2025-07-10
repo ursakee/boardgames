@@ -3,20 +3,12 @@ import type { GameBoardComponentProps } from "../../../types";
 import type { BrainTrainGameState, GridState } from "../types";
 import { PuzzleGrid } from "./PuzzleGrid";
 import { TrainCars } from "./TrainCars";
-import { Loader, Play, Home, Settings } from "lucide-react";
+import { Loader, Play, Home, Settings, XCircle } from "lucide-react";
 import { useGameSession } from "../../../hooks/useGameSession";
 
-// The props interface is now compatible with the generic GameBoardComponentProps.
 type BrainTrainBoardProps = GameBoardComponentProps<BrainTrainGameState>;
 
-const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({
-  gameState,
-  isGameOver,
-  isMyTurn,
-  onPerformAction,
-  onLeaveGame,
-}) => {
-  // Get the extra required state directly from the hook.
+const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver, onPerformAction, onLeaveGame }) => {
   const { localPlayer, isHost, startGame, gameOptions, setGameOptions, gameInfo, returnToLobby } = useGameSession();
 
   const { puzzle, playerStates, winner } = gameState;
@@ -25,7 +17,6 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({
   const [gridState, setGridState] = useState<GridState | null>(null);
 
   useEffect(() => {
-    // This effect now correctly depends only on the puzzle and local player state
     if (puzzle && localPlayerState && !gridState) {
       const newGridState = Array(puzzle.grid.rows)
         .fill(null)
@@ -35,7 +26,7 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({
   }, [puzzle, localPlayerState, gridState, setGridState]);
 
   const handleSubmit = () => {
-    if (gridState && isMyTurn) {
+    if (gridState && !localPlayerState?.submitted) {
       onPerformAction({ type: "SUBMIT_SOLUTION", payload: gridState });
     }
   };
@@ -45,17 +36,26 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({
   }
 
   const getResult = () => {
-    if (!winner) return { message: "", color: "" };
-    if (winner === "incorrect") return { message: "Incorrect Submission!", color: "text-yellow-400" };
+    if (!isGameOver) return { message: "", color: "" };
     if (winner === localPlayer.id) return { message: "You Win!", color: "text-green-400" };
-    return { message: "You Lose!", color: "text-red-400" };
+    if (winner) return { message: "You Lose!", color: "text-red-400" };
+    return { message: "It's a Draw!", color: "text-slate-300" };
   };
 
   const { message, color } = getResult();
+  const wasIncorrect = localPlayerState.submissionResult === "incorrect" && !isGameOver;
 
   return (
     <div className="fixed inset-0 flex flex-col items-center justify-center">
-      <div className="flex flex-col md:flex-row items-center gap-8 p-4 bg-slate-800/50 rounded-2xl border border-slate-700/50">
+      <div className="flex flex-col md:flex-row items-center gap-8 p-4 bg-slate-800/50 rounded-2xl border border-slate-700/50 relative">
+        {wasIncorrect && (
+          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-2xl">
+            <XCircle className="h-20 w-20 text-yellow-400 mb-4" />
+            <h2 className="text-4xl font-bold text-yellow-400">Incorrect Solution</h2>
+            <p className="mt-2 text-slate-300">Waiting for other players to finish...</p>
+          </div>
+        )}
+
         <div className="w-full md:w-56 p-4 bg-slate-800 rounded-xl space-y-4 self-stretch flex flex-col">
           <h3 className="text-xl font-bold text-center text-slate-200 border-b border-slate-600 pb-2">
             Available Trains
@@ -83,7 +83,7 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({
             gridState={gridState}
             setGridState={setGridState}
             fixedTrainId={localPlayerState.fixedTrainId}
-            isGameOver={isGameOver}
+            isInteractable={!isGameOver && !localPlayerState.submitted}
           />
         </div>
       </div>

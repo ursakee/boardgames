@@ -7,7 +7,7 @@ interface PuzzleGridProps {
   gridState: GridState;
   setGridState: React.Dispatch<React.SetStateAction<GridState | null>>;
   fixedTrainId: number | null;
-  isGameOver: boolean;
+  isInteractable: boolean;
 }
 
 const MemoizedPuzzleGrid: React.FC<PuzzleGridProps> = ({
@@ -15,7 +15,7 @@ const MemoizedPuzzleGrid: React.FC<PuzzleGridProps> = ({
   gridState,
   setGridState,
   fixedTrainId,
-  isGameOver,
+  isInteractable,
 }) => {
   const { grid, tracks, clues, trains } = puzzle;
 
@@ -45,7 +45,7 @@ const MemoizedPuzzleGrid: React.FC<PuzzleGridProps> = ({
   }, [puzzle]);
 
   const handleLeftClick = (row: number, col: number) => {
-    if (isGameOver) return;
+    if (!isInteractable) return;
     setGridState((prev) => {
       if (!prev) return null;
       const newGrid = prev.map((r) => [...r.map((cell) => (cell ? [...cell] : null))]);
@@ -65,7 +65,7 @@ const MemoizedPuzzleGrid: React.FC<PuzzleGridProps> = ({
 
   const handleRightClick = (e: React.MouseEvent, row: number, col: number) => {
     e.preventDefault();
-    if (isGameOver) return;
+    if (!isInteractable) return;
     setGridState((prev) => {
       if (!prev) return null;
       const newGrid = prev.map((r) => [...r.map((cell) => (cell ? [...cell] : null))]);
@@ -106,7 +106,7 @@ const MemoizedPuzzleGrid: React.FC<PuzzleGridProps> = ({
                   onClick={() => handleLeftClick(r, c)}
                   onContextMenu={(e) => handleRightClick(e, r, c)}
                   className="w-16 h-16 bg-slate-700 border-2 border-slate-600 relative"
-                  style={{ cursor: isGameOver ? "not-allowed" : "pointer" }}
+                  style={{ cursor: isInteractable ? "pointer" : "not-allowed" }}
                 >
                   {renderCellContent(cell)}
                 </td>
