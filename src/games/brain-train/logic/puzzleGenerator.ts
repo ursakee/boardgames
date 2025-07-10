@@ -1,8 +1,5 @@
 import type { BrainTrainPuzzle, Difficulty, Track, Train, Position } from "../types";
 
-// A direct, line-for-line style translation of the original puzzle_generator.js
-// to ensure identical puzzle generation behavior.
-
 // --- UTILITY FUNCTIONS ---
 function getRandomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -19,14 +16,28 @@ const settings = {
     carsRange: [2, 4] as [number, number],
   },
   hard: { rows: 8, columns: 14, trackCount: 5, trainCount: 12, carsRange: [2, 4] as [number, number] },
+  veryhard: { rows: 10, columns: 16, trackCount: 6, trainCount: 14, carsRange: [2, 4] as [number, number] },
 };
 
-// --- MAIN PUZZLE GENERATION ---
 export function generatePuzzle(difficulty: Difficulty): BrainTrainPuzzle {
+  while (true) {
+    const puzzle = attemptToGeneratePuzzle(difficulty);
+    if (puzzle) {
+      return puzzle;
+    }
+  }
+}
+
+/**
+ * Attempts to generate a puzzle for a specific difficulty level within a set number of retries.
+ * @param difficulty The specific difficulty to generate.
+ * @returns A BrainTrainPuzzle if successful, otherwise null.
+ */
+function attemptToGeneratePuzzle(difficulty: Difficulty): BrainTrainPuzzle | null {
   const { rows, columns, trackCount, trainCount, carsRange } = settings[difficulty];
 
   let tracks: Track[] | null = null;
-  let trains: Train[] | null = null;
+  let trains: Train[] = [];
   let clues: { rowClues: number[]; columnClues: number[] } | null = null;
   let attempt = 0;
   const maxAttempts = 100;
@@ -35,39 +46,31 @@ export function generatePuzzle(difficulty: Difficulty): BrainTrainPuzzle {
     attempt++;
 
     tracks = generateTracks(trackCount, rows, columns);
-
     if (!tracks || tracks.length < trackCount) {
-      console.warn(`Attempt ${attempt}: Failed to generate tracks, retrying...`);
       continue;
     }
 
-    trains = generateTrains(trainCount, carsRange, tracks);
-
-    if (trains && trains.length > 0) {
-      clues = generateClues(trains, rows, columns);
-      break;
-    } else {
-      console.warn(`Attempt ${attempt}: No trains found, regenerating...`);
+    try {
+      // This function will throw an error if the "2 trains per track" rule can't be met
+      trains = generateTrains(trainCount, carsRange, tracks);
+    } catch (error) {
+      // If train generation fails for this track layout, just continue to the next attempt.
+      continue;
     }
+
+    // This code is only reached if both track and train generation succeed.
+    clues = generateClues(trains, rows, columns);
+
+    return {
+      difficulty,
+      grid: { rows, columns, gridSize: rows * columns },
+      tracks: tracks,
+      trains: trains,
+      clues: clues,
+    };
   }
 
-  if (attempt === maxAttempts || !tracks || !trains || !clues) {
-    throw new Error(`Failed to generate a valid puzzle after ${maxAttempts} attempts.`);
-  }
-
-  const puzzle: BrainTrainPuzzle = {
-    difficulty,
-    grid: {
-      rows,
-      columns,
-      gridSize: rows * columns,
-    },
-    tracks: tracks!,
-    trains: trains!,
-    clues: clues!,
-  };
-
-  return puzzle;
+  return null;
 }
 
 // --- TRACK GENERATION ---
@@ -159,7 +162,6 @@ function generateTrackPath(start: Position, end: Position, rows: number, columns
   const initialDirection = start.row === 0 || start.row === rows - 1 ? "vertical" : "horizontal";
   const endingDirection = end.row === 0 || end.row === rows - 1 ? "vertical" : "horizontal";
 
-  // Define the points just inside the grid from the start and end
   const startPoint = { ...start };
   const endPoint = { ...end };
   const firstTurnPoint = { ...start };
@@ -180,36 +182,54 @@ function generateTrackPath(start: Position, end: Position, rows: number, columns
   current = { ...firstTurnPoint };
   path.push({ ...current, isHorizontal: initialDirection === "horizontal", isCorner: false });
 
-  let lastDirection = initialDirection;
+  let lastDirection: "vertical" | "horizontal" = initialDirection;
   let loopGuard = 0;
   const maxLoop = rows * columns;
+  let justTurned = false;
 
-  // Main pathing loop from the first turn to the last turn
   while (current.row !== lastTurnPoint.row || current.col !== lastTurnPoint.col) {
-    if (loopGuard++ > maxLoop) return []; // Safety break
+    if (loopGuard++ > maxLoop) return [];
 
     const dRow = Math.sign(lastTurnPoint.row - current.row);
     const dCol = Math.sign(lastTurnPoint.col - current.col);
 
     let moveDirection: "vertical" | "horizontal";
 
-    // Decide whether to move vertically or horizontally
     const canMoveVertical = dRow !== 0;
     const canMoveHorizontal = dCol !== 0;
 
-    if (canMoveVertical && !canMoveHorizontal) {
+    if (justTurned) {
+      moveDirection = lastDirection;
+      if (
+        (moveDirection === "vertical" && !canMoveVertical) ||
+        (moveDirection === "horizontal" && !canMoveHorizontal)
+      ) {
+        return [];
+      }
+    } else if (canMoveVertical && !canMoveHorizontal) {
       moveDirection = "vertical";
     } else if (!canMoveVertical && canMoveHorizontal) {
       moveDirection = "horizontal";
     } else {
-      // Prefer to continue in the same direction if possible
-      moveDirection = Math.random() > 0.5 ? "vertical" : "horizontal";
-      if (moveDirection === lastDirection && (moveDirection === "vertical" ? !canMoveVertical : !canMoveHorizontal)) {
-        moveDirection = moveDirection === "vertical" ? "horizontal" : "vertical";
+      const preferStraight = Math.random() < 0.7;
+      if (preferStraight && lastDirection === "vertical" && canMoveVertical) {
+        moveDirection = "vertical";
+      } else if (preferStraight && lastDirection === "horizontal" && canMoveHorizontal) {
+        moveDirection = "horizontal";
+      } else {
+        const newDirection = lastDirection === "vertical" ? "horizontal" : "vertical";
+        if (newDirection === "vertical" && canMoveVertical) {
+          moveDirection = "vertical";
+        } else if (newDirection === "horizontal" && canMoveHorizontal) {
+          moveDirection = "horizontal";
+        } else {
+          moveDirection = lastDirection;
+        }
       }
     }
 
     const isCorner = moveDirection !== lastDirection;
+    justTurned = isCorner;
 
     if (moveDirection === "vertical") {
       current.row += dRow;
@@ -217,20 +237,18 @@ function generateTrackPath(start: Position, end: Position, rows: number, columns
       current.col += dCol;
     }
 
-    if (isOutOfBounds(current)) return []; // Path went out of bounds
+    if (isOutOfBounds(current)) return [];
 
     path.push({ ...current, isHorizontal: moveDirection === "horizontal", isCorner });
     lastDirection = moveDirection;
   }
 
-  // Add the start and end points to complete the path
   const finalPath: PathPoint[] = [
     { ...startPoint, isHorizontal: initialDirection === "horizontal", isCorner: false },
     ...path,
     { ...endPoint, isHorizontal: endingDirection === "horizontal", isCorner: false },
   ];
 
-  // De-duplicate points, which can happen if start/end are very close
   const uniquePath = finalPath.filter(
     (p, i) => i === 0 || p.row !== finalPath[i - 1].row || p.col !== finalPath[i - 1].col
   );
@@ -243,8 +261,8 @@ function generateTracks(trackCount: number, rows: number, columns: number): Trac
   let totalRetries = 0;
 
   const attemptGenerateTracks = (): Track[] | null => {
-    const availableColors = ["#ef4444", "#3b82f6", "#22c55e", "#ec4899", "#a855f7", "#f97316"];
-    if (trackCount > availableColors.length) throw new Error("Not enough unique colors for the number of tracks!");
+    const availableColors = ["#ef4444", "#3b82f6", "#22c55e", "#ec4899", "#a855f7", "#f97316", "#eab308"];
+    if (trackCount > availableColors.length) return null;
 
     const tracks: Track[] = [];
     const occupiedCells = new Map<string, OccupiedCellInfo>();
@@ -295,9 +313,7 @@ function generateTracks(trackCount: number, rows: number, columns: number): Trac
           }
         }
 
-        if (!validTrack || !path) {
-          continue;
-        }
+        if (!validTrack || !path) continue;
 
         usedStartEndPoints.add(startKey!);
         usedStartEndPoints.add(endKey!);
@@ -331,26 +347,7 @@ function generateTracks(trackCount: number, rows: number, columns: number): Trac
 }
 
 // --- TRAIN GENERATION ---
-
-function generateTrains(trainCount: number, carsRange: [number, number], tracks: Track[]): Train[] | null {
-  const maxAttempts = 100;
-  let attempt = 0;
-  let success = false;
-  let trains: Train[] = [];
-
-  while (attempt < maxAttempts && !success) {
-    try {
-      trains = tryGenerateTrains(trainCount, carsRange, tracks);
-      success = true;
-    } catch (error) {
-      attempt++;
-      if (attempt === maxAttempts) return null;
-    }
-  }
-  return trains;
-}
-
-function tryGenerateTrains(trainCount: number, carsRange: [number, number], tracks: Track[]): Train[] {
+function generateTrains(trainCount: number, carsRange: [number, number], tracks: Track[]): Train[] {
   const occupiedTiles = new Set<string>();
   const blockedTiles = new Set<string>();
   const trains: Train[] = [];
@@ -386,7 +383,7 @@ function tryGenerateTrains(trainCount: number, carsRange: [number, number], trac
       const isInvalid = trainTiles.some((tile) => {
         const tileKey = `${tile.row},${tile.col}`;
         if (occupiedTiles.has(tileKey) || blockedTiles.has(tileKey)) return true;
-        const adjacent = getAdjacentTiles(tile); // Uses cardinal direction adjacency
+        const adjacent = getAdjacentTiles(tile);
         for (const adj of adjacent) {
           if (occupiedTiles.has(`${adj.row},${adj.col}`)) return true;
         }
@@ -422,20 +419,22 @@ function tryGenerateTrains(trainCount: number, carsRange: [number, number], trac
     return false;
   };
 
-  // Ensure each track gets at least one train
   for (const track of tracksCopy) {
-    if (remainingTrainCount <= 0) break;
-    placeTrainOnTrack(track);
+    if (!placeTrainOnTrack(track)) {
+      throw new Error(`Failed to place the first train on track ${track.trackId}.`);
+    }
   }
 
-  // Distribute remaining trains
-  while (remainingTrainCount > 0 && tracksCopy.length > 0) {
-    tracksCopy = tracksCopy.filter((t) => t.path.length >= carsRange[0]);
-    tracksCopy.sort((a, b) => b.path.length - a.path.length);
-    if (tracksCopy.length === 0) break;
+  while (remainingTrainCount > 0) {
+    let availableTracks = tracksCopy
+      .filter((t) => t.path.length >= carsRange[0])
+      .sort((a, b) => b.path.length - a.path.length);
 
-    if (!placeTrainOnTrack(tracksCopy[0])) {
-      tracksCopy.shift(); // Remove track if no train can be placed
+    if (availableTracks.length === 0) break;
+
+    if (!placeTrainOnTrack(availableTracks[0])) {
+      const failedTrackId = availableTracks[0].trackId;
+      tracksCopy = tracksCopy.filter((t) => t.trackId !== failedTrackId);
     }
   }
 

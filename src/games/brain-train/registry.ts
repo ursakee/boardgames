@@ -27,6 +27,7 @@ const brainTrainGameEntry: GameRegistryEntry<BrainTrainGameState> = {
         { label: "Easy", value: "easy" },
         { label: "Medium", value: "medium" },
         { label: "Hard", value: "hard" },
+        { label: "Very Hard", value: "veryhard" },
       ],
     },
   ],

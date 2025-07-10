@@ -1,6 +1,6 @@
 import type { PlayerId } from "../../types";
 
-export type Difficulty = "easy" | "medium" | "hard";
+export type Difficulty = "easy" | "medium" | "hard" | "veryhard";
 
 export interface Position {
   row: number;

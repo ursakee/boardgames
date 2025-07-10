@@ -41,7 +41,7 @@ export const TrainCars: React.FC<TrainCarsProps> = ({ tracks, trains, fixedTrain
   });
 
   return (
-    <div className={trains.length > 12 ? "grid grid-cols-2 gap-x-2 gap-y-1" : "space-y-1"}>
+    <div className={"space-y-1"}>
       {sortedTrains.map((train) => (
         <div
           key={train.trainId}
