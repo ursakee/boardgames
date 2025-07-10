@@ -127,19 +127,26 @@ export const useGameStore = create<GameState>((set, get) => ({
         get().leaveGame();
         return;
       }
-      const { players: updatedPlayers = [], options: updatedOptions = {} } = snapshot.data();
-      const currentPlayers = get().players;
 
-      if (get().gameId === newGameId) {
-        set({ players: updatedPlayers, gameOptions: updatedOptions });
+      const { players: playersFromFS = [], options: updatedOptions = {} } = snapshot.data();
+      const { players: currentLocalPlayers, gameId: currentLobbyId } = get();
 
-        if (updatedPlayers.length > currentPlayers.length) {
-          const newPlayer = updatedPlayers.find((p: Player) => !currentPlayers.some((cp) => cp.id === p.id));
-          if (newPlayer) {
-            useConnectionStore.getState().initiateConnectionForGuest(newPlayer.id);
-          }
+      if (currentLobbyId !== newGameId) return;
+
+      if (playersFromFS.length > currentLocalPlayers.length) {
+        const localPlayerIds = new Set(currentLocalPlayers.map((p) => p.id));
+        const newPlayer = playersFromFS.find((p: Player) => !localPlayerIds.has(p.id));
+
+        if (newPlayer) {
+          set((state) => ({ players: [...state.players, newPlayer] }));
+          useConnectionStore.getState().initiateConnectionForGuest(newPlayer.id);
+          useConnectionStore.getState().broadcastMessage({
+            type: "sync_players",
+            payload: get().players,
+          });
         }
       }
+      set({ gameOptions: updatedOptions });
     });
 
     set({ unsubscribes: [unsub] });
@@ -390,34 +397,50 @@ export const useGameStore = create<GameState>((set, get) => ({
   handlePlayerDisconnect: async (disconnectedPlayerId: PlayerId) => {
     const { isHost, broadcastMessage } = useConnectionStore.getState();
     if (isHost) {
-      const { gameId, players, gameOptions } = get();
+      const { gameId, players, gameInfo, gameOptions, gamePhase } = get();
+      if (!gameInfo) return;
+
       const updatedPlayers = players.filter((p) => p.id !== disconnectedPlayerId);
 
       if (updatedPlayers.length < players.length) {
-        // We reset the game to lobby, but keep scores and options
-        const newGameState = null; // Clear the board
-        const newPhase = "lobby";
+        if (gamePhase === "in-game" && updatedPlayers.length >= gameInfo.minPlayers) {
+          set({ players: updatedPlayers });
 
-        set({
-          players: updatedPlayers,
-          gameState: newGameState,
-          gamePhase: newPhase,
-        });
+          if (gameId) {
+            await updateDoc(doc(db, "games", gameId), {
+              players: updatedPlayers,
+              [`connections.${disconnectedPlayerId}`]: deleteField(),
+            });
+          }
 
-        if (gameId) {
-          const gameRef = doc(db, "games", gameId);
-          await updateDoc(gameRef, {
+          broadcastMessage({
+            type: "sync_players",
+            payload: updatedPlayers,
+          });
+        } else {
+          const newGameState = null;
+          const newPhase = "lobby";
+
+          set({
             players: updatedPlayers,
             gameState: newGameState,
             gamePhase: newPhase,
-            [`connections.${disconnectedPlayerId}`]: deleteField(),
+          });
+
+          if (gameId) {
+            await updateDoc(doc(db, "games", gameId), {
+              players: updatedPlayers,
+              gameState: newGameState,
+              gamePhase: newPhase,
+              [`connections.${disconnectedPlayerId}`]: deleteField(),
+            });
+          }
+
+          broadcastMessage({
+            type: "sync_full_game_state",
+            payload: { players: updatedPlayers, gameState: newGameState, gamePhase: newPhase, gameOptions },
           });
         }
-
-        broadcastMessage({
-          type: "sync_full_game_state",
-          payload: { players: updatedPlayers, gameState: newGameState, gamePhase: newPhase, gameOptions },
-        });
       }
     } else {
       if (disconnectedPlayerId === "p1") {

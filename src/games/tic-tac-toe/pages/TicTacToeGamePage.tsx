@@ -117,8 +117,9 @@ const TicTacToeGamePage: React.FC = () => {
   const handleLeaveGame = async () => {
     setIsLeaving(true);
     await leaveGame();
-    navigate(`/`, { replace: true });
+    navigate(`/game/${gameName}`, { replace: true });
   };
+
   const handleReturnToLobby = async () => {
     setIsLeaving(true);
     await leaveGame();
