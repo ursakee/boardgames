@@ -18,6 +18,7 @@ const BrainTrainGamePage: React.FC = () => {
     players,
     localPlayer,
     isHost,
+    peerConnectionStates,
     joinGame,
     leaveGame,
     setMyUsername,
@@ -33,6 +34,18 @@ const BrainTrainGamePage: React.FC = () => {
   const [notification, setNotification] = useState<string | null>(null);
   const previousPlayersRef = useRef<Player[]>(players);
   const disconnectionMessage = useGameStore((state) => state.disconnectionMessage);
+
+  const areAllPlayersConnected = useMemo(() => {
+    if (!gameInfo || players.length < gameInfo.minPlayers) return false;
+    if (gameInfo.minPlayers === 1) return true;
+    if (!isHost) {
+      return peerConnectionStates.get("p1") === "connected";
+    }
+
+    const guestIds = players.filter((p) => p.id !== localPlayer?.id).map((p) => p.id);
+    if (guestIds.length === 0 && players.length < gameInfo.minPlayers) return false;
+    return guestIds.every((id) => peerConnectionStates.get(id) === "connected");
+  }, [players, gameInfo, isHost, localPlayer, peerConnectionStates]);
 
   useEffect(() => {
     if (disconnectionMessage && activeGameId) {
@@ -207,6 +220,7 @@ const BrainTrainGamePage: React.FC = () => {
         {isHost ? (
           <button
             onClick={startGame}
+            disabled={!areAllPlayersConnected}
             className="w-full md:w-auto flex items-center justify-center gap-2 px-8 py-3 text-lg font-semibold text-slate-900 bg-green-500 rounded-lg hover:bg-green-400"
           >
             <Play size={20} /> Start Game

@@ -140,10 +140,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         if (newPlayer) {
           set((state) => ({ players: [...state.players, newPlayer] }));
           useConnectionStore.getState().initiateConnectionForGuest(newPlayer.id);
-          useConnectionStore.getState().broadcastMessage({
-            type: "sync_players",
-            payload: get().players,
-          });
         }
       }
       set({ gameOptions: updatedOptions });
@@ -206,6 +202,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         gameName,
         gameInfo,
         playerId: guestId,
+        players: [...existingPlayers, guestPlayer],
         gamePhase: "lobby",
         gameOptions: gameData.options || {},
         unsubscribes: [unsub],
@@ -300,7 +297,6 @@ export const useGameStore = create<GameState>((set, get) => ({
     const updatedOptions = { ...gameOptions, ...newOptions };
     set({ gameOptions: updatedOptions });
     updateDoc(doc(db, "games", gameId), { options: updatedOptions });
-    // No need to broadcast here, Firestore snapshot listener will handle it
   },
 
   performAction: (action: Omit<GameAction, "playerId">) => {
@@ -324,7 +320,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const newGameState = gameInfo.getInitialState(
       players.map((p) => p.id),
       gameState,
-      gameOptions // Pass the selected options
+      gameOptions
     );
     const newPhase = "in-game";
     set({ gameState: newGameState, gamePhase: newPhase });
@@ -344,7 +340,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     const { gameId } = get();
     if (!isHost || !gameId) return;
 
-    set({ gamePhase: "lobby", gameState: null }); // Clear game board on return
+    set({ gamePhase: "lobby", gameState: null });
     broadcastMessage({ type: "return_to_lobby" });
     updateDoc(doc(db, "games", gameId), { gamePhase: "lobby", gameState: null });
   },

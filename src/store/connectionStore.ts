@@ -22,6 +22,7 @@ interface ConnectionStateStore {
   peerConnections: Map<PlayerId, RTCPeerConnection>;
   dataChannels: Map<PlayerId, RTCDataChannel>;
   peerConnectionStates: Map<PlayerId, ConnectionState>;
+  processedCandidates: Map<PlayerId, Set<string>>;
   onMessageCallback: (message: GameMessage, fromPlayerId: PlayerId) => void;
   unsubscribes: Unsubscribe[];
 
@@ -42,6 +43,7 @@ const servers = {
 
 const _createPeerConnection = (
   gameId: string,
+  selfId: PlayerId,
   peerId: PlayerId,
   isHost: boolean,
   get: () => ConnectionStateStore,
@@ -51,20 +53,11 @@ const _createPeerConnection = (
 ): RTCPeerConnection => {
   const pc = new RTCPeerConnection(servers);
 
-  pc.onicecandidate = async (event) => {
-    if (event.candidate) {
-      const field = isHost ? `connections.${peerId}.hostCandidates` : `connections.${peerId}.guestCandidates`;
-      const gameRef = doc(db, "games", gameId);
-      await updateDoc(gameRef, { [field]: arrayUnion(event.candidate.toJSON()) });
-    }
-  };
-
   pc.onconnectionstatechange = () => {
     const newState = pc.connectionState as ConnectionState;
     set((state) => ({
       peerConnectionStates: new Map(state.peerConnectionStates).set(peerId, newState),
     }));
-
     if (newState === "disconnected" || newState === "failed" || newState === "closed") {
       useGameStore.getState().handlePlayerDisconnect(peerId);
       get().peerConnections.get(peerId)?.close();
@@ -78,6 +71,17 @@ const _createPeerConnection = (
     }
   };
 
+  pc.onicecandidate = async (event) => {
+    if (event.candidate) {
+      const connectionSlotId = isHost ? peerId : selfId;
+      const candidateFieldName = isHost ? "hostCandidates" : "guestCandidates";
+      const field = `connections.${connectionSlotId}.${candidateFieldName}`;
+
+      const gameRef = doc(db, "games", gameId);
+      await updateDoc(gameRef, { [field]: arrayUnion(event.candidate.toJSON()) });
+    }
+  };
+
   const setupDataChannel = (channel: RTCDataChannel) => {
     channel.onopen = () => {
       useGameStore.getState().handlePlayerConnect(peerId);
@@ -85,7 +89,6 @@ const _createPeerConnection = (
     channel.onmessage = (event) => {
       get().onMessageCallback(JSON.parse(event.data), peerId);
     };
-    channel.onclose = () => {};
     set((state) => ({ dataChannels: new Map(state.dataChannels).set(peerId, channel) }));
   };
 
@@ -106,6 +109,7 @@ export const useConnectionStore = create<ConnectionStateStore>((set, get) => ({
   peerConnections: new Map(),
   dataChannels: new Map(),
   peerConnectionStates: new Map(),
+  processedCandidates: new Map(),
   onMessageCallback: () => {},
   unsubscribes: [],
 
@@ -116,19 +120,23 @@ export const useConnectionStore = create<ConnectionStateStore>((set, get) => ({
     const unsub = onSnapshot(gameRef, async (snapshot) => {
       const data = snapshot.data();
       if (!data?.connections) return;
-
       for (const guestId in data.connections) {
         const pc = get().peerConnections.get(guestId);
         if (!pc) continue;
-
         const slot = data.connections[guestId] as ConnectionSlot;
         if (slot.answer && !pc.currentRemoteDescription) {
           await pc.setRemoteDescription(new RTCSessionDescription(slot.answer));
         }
         if (slot.guestCandidates) {
+          let processed = get().processedCandidates.get(guestId) || new Set();
           slot.guestCandidates.forEach((candidate) => {
-            pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+            const candidateStr = JSON.stringify(candidate);
+            if (!processed.has(candidateStr)) {
+              pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+              processed.add(candidateStr);
+            }
           });
+          set((state) => ({ processedCandidates: new Map(state.processedCandidates).set(guestId, processed) }));
         }
       }
     });
@@ -138,28 +146,30 @@ export const useConnectionStore = create<ConnectionStateStore>((set, get) => ({
   initAsGuest: (gameId: string, selfId: PlayerId, hostId: PlayerId) => {
     get()._reset();
     set({ isHost: false, gameId });
-    const pc = _createPeerConnection(gameId, hostId, false, get, set);
+    // MODIFICATION: Pass selfId to _createPeerConnection
+    const pc = _createPeerConnection(gameId, selfId, hostId, false, get, set);
 
     const gameRef = doc(db, "games", gameId);
     const unsub = onSnapshot(gameRef, async (snapshot) => {
       const data = snapshot.data();
       const slot = data?.connections?.[selfId] as ConnectionSlot | undefined;
       if (!slot) return;
-
-      if (slot.offer && !pc.remoteDescription) {
-        if (pc.signalingState !== "stable") {
-          return;
-        }
+      if (slot.offer && !pc.currentRemoteDescription) {
         await pc.setRemoteDescription(new RTCSessionDescription(slot.offer));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         await updateDoc(gameRef, { [`connections.${selfId}.answer`]: { type: answer.type, sdp: answer.sdp } });
       }
-
       if (slot.hostCandidates) {
+        let processed = get().processedCandidates.get(hostId) || new Set();
         slot.hostCandidates.forEach((candidate) => {
-          pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+          const candidateStr = JSON.stringify(candidate);
+          if (!processed.has(candidateStr)) {
+            pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+            processed.add(candidateStr);
+          }
         });
+        set((state) => ({ processedCandidates: new Map(state.processedCandidates).set(hostId, processed) }));
       }
     });
     set({ unsubscribes: [unsub] });
@@ -168,41 +178,32 @@ export const useConnectionStore = create<ConnectionStateStore>((set, get) => ({
   initiateConnectionForGuest: async (guestId: PlayerId) => {
     const { gameId, isHost } = get();
     if (!isHost || !gameId) return;
-
-    const pc = _createPeerConnection(gameId, guestId, true, get, set);
+    // MODIFICATION: Pass guestId as selfId (since host is initiating, there's no separate selfId)
+    const pc = _createPeerConnection(gameId, guestId, guestId, true, get, set);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-
     const gameRef = doc(db, "games", gameId);
-    await updateDoc(gameRef, {
-      [`connections.${guestId}.offer`]: { type: offer.type, sdp: offer.sdp },
-    });
+    await updateDoc(gameRef, { [`connections.${guestId}.offer`]: { type: offer.type, sdp: offer.sdp } });
   },
 
   broadcastMessage: (message: GameMessage) => {
     const { dataChannels } = get();
     const msgString = JSON.stringify(message);
     dataChannels.forEach((channel) => {
-      if (channel.readyState === "open") {
-        channel.send(msgString);
-      }
+      if (channel.readyState === "open") channel.send(msgString);
     });
   },
 
   sendMessageToHost: (message: GameMessage) => {
     const { dataChannels } = get();
     const hostChannel = Array.from(dataChannels.values())[0];
-    if (hostChannel?.readyState === "open") {
-      hostChannel.send(JSON.stringify(message));
-    }
+    if (hostChannel?.readyState === "open") hostChannel.send(JSON.stringify(message));
   },
 
   sendMessageToGuest: (guestId: PlayerId, message: GameMessage) => {
     const { dataChannels } = get();
     const guestChannel = dataChannels.get(guestId);
-    if (guestChannel?.readyState === "open") {
-      guestChannel.send(JSON.stringify(message));
-    }
+    if (guestChannel?.readyState === "open") guestChannel.send(JSON.stringify(message));
   },
 
   leaveSession: async () => {
@@ -218,6 +219,7 @@ export const useConnectionStore = create<ConnectionStateStore>((set, get) => ({
       peerConnections: new Map(),
       dataChannels: new Map(),
       peerConnectionStates: new Map(),
+      processedCandidates: new Map(),
       unsubscribes: [],
     });
   },
