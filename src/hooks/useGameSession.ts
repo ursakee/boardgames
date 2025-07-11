@@ -1,6 +1,7 @@
 import { useGameStore } from "../store/gameStore";
 import { useConnectionStore } from "../store/connectionStore";
 import { useMemo } from "react";
+import { findGame } from "../games/gameRegistry";
 
 /**
  * A custom hook to centralize access to game and connection state.
@@ -11,7 +12,6 @@ export const useGameSession = () => {
   const {
     gameId,
     gameName,
-    gameInfo,
     playerId,
     players,
     gamePhase,
@@ -25,13 +25,13 @@ export const useGameSession = () => {
     setGameOptions,
     performAction,
     startGame,
-    playAgain,
     returnToLobby,
     resetSession,
   } = useGameStore();
 
   const { isHost, peerConnectionStates } = useConnectionStore();
 
+  const gameInfo = useMemo(() => findGame(gameName || undefined), [gameName]);
   const localPlayer = useMemo(() => players.find((p) => p.id === playerId), [players, playerId]);
 
   return {
@@ -48,6 +48,7 @@ export const useGameSession = () => {
     peerConnectionStates,
     localPlayer,
 
+    // Actions
     createGame,
     joinGame,
     leaveGame,
@@ -56,7 +57,6 @@ export const useGameSession = () => {
     setGameOptions,
     performAction,
     startGame,
-    playAgain,
     returnToLobby,
     resetSession,
   };

@@ -1,23 +1,12 @@
 import { create } from "zustand";
+import { immer } from "zustand/middleware/immer";
 import { useConnectionStore } from "./connectionStore";
 import { findGame } from "../games/gameRegistry";
-import type { GameAction, GameRegistryEntry, PlayerId } from "../types";
-import {
-  collection,
-  doc,
-  setDoc,
-  onSnapshot,
-  updateDoc,
-  deleteDoc,
-  getDoc,
-  arrayUnion,
-  deleteField,
-  type Unsubscribe,
-} from "firebase/firestore";
+import * as gameService from "../services/gameService";
+import type { GameAction, PlayerId } from "../types";
+import { doc, onSnapshot, type Unsubscribe } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
-// A module-level lock to prevent race conditions during the join process,
-// especially when dealing with React's StrictMode.
 let isJoining = false;
 
 // --- Types ---
@@ -46,7 +35,6 @@ type GameMessage =
 interface GameState {
   gameId: string | null;
   gameName: string | null;
-  gameInfo: GameRegistryEntry | null;
   playerId: PlayerId | null;
   players: Player[];
   gamePhase: GamePhase;
@@ -54,7 +42,6 @@ interface GameState {
   gameOptions: Record<string, any>;
   disconnectionMessage: string | null;
   unsubscribes: Unsubscribe[];
-
   createGame: (gameName: string) => Promise<string | undefined>;
   joinGame: (id: string, gameName: string) => Promise<"success" | "failed" | "locked">;
   leaveGame: () => Promise<void>;
@@ -65,387 +52,342 @@ interface GameState {
   setGameOptions: (newOptions: Record<string, any>) => void;
   performAction: (action: Omit<GameAction, "playerId">) => void;
   startGame: () => void;
-  playAgain: () => void;
   returnToLobby: () => void;
-
   handleMessage: (message: GameMessage, fromPlayerId: PlayerId) => void;
   handlePlayerConnect: (connectedPlayerId: PlayerId) => void;
   handlePlayerDisconnect: (disconnectedPlayerId: PlayerId) => void;
   resetStore: () => void;
 }
 
-export const useGameStore = create<GameState>((set, get) => ({
-  gameId: null,
-  gameName: null,
-  gameInfo: null,
-  playerId: null,
-  players: [],
-  gamePhase: "lobby",
-  gameState: null,
-  gameOptions: {},
-  disconnectionMessage: null,
-  unsubscribes: [],
+export const useGameStore = create(
+  immer<GameState>((set, get) => ({
+    gameId: null,
+    gameName: null,
+    playerId: null,
+    players: [],
+    gamePhase: "lobby",
+    gameState: null,
+    gameOptions: {},
+    disconnectionMessage: null,
+    unsubscribes: [],
 
-  createGame: async (gameName: string) => {
-    if (get().gameId) return;
-
-    const gameInfo = findGame(gameName);
-    if (!gameInfo) return;
-
-    get().resetStore();
-
-    const hostId = "p1";
-    const newGameId = doc(collection(db, "games")).id;
-    const hostPlayer: Player = { id: hostId, username: "Player 1" };
-
-    const defaultOptions =
-      gameInfo.gameOptions?.reduce((acc, opt) => {
-        acc[opt.id] = opt.defaultValue;
-        return acc;
-      }, {} as Record<string, any>) || {};
-
-    set({
-      gameId: newGameId,
-      gameName,
-      gameInfo,
-      playerId: hostId,
-      players: [hostPlayer],
-      gamePhase: "lobby",
-      gameOptions: defaultOptions,
-    });
-
-    useConnectionStore.getState().initAsHost(newGameId);
-    await setDoc(doc(db, "games", newGameId), {
-      players: [hostPlayer],
-      connections: {},
-      gamePhase: "lobby",
-      options: defaultOptions,
-    });
-
-    const unsub = onSnapshot(doc(db, "games", newGameId), (snapshot) => {
-      if (!snapshot.exists()) {
-        get().leaveGame();
-        return;
-      }
-
-      const { players: playersFromFS = [], options: updatedOptions = {} } = snapshot.data();
-      const { players: currentLocalPlayers, gameId: currentLobbyId } = get();
-
-      if (currentLobbyId !== newGameId) return;
-
-      if (playersFromFS.length > currentLocalPlayers.length) {
-        const localPlayerIds = new Set(currentLocalPlayers.map((p) => p.id));
-        const newPlayer = playersFromFS.find((p: Player) => !localPlayerIds.has(p.id));
-
-        if (newPlayer) {
-          set((state) => ({ players: [...state.players, newPlayer] }));
-          useConnectionStore.getState().initiateConnectionForGuest(newPlayer.id);
-        }
-      }
-      set({ gameOptions: updatedOptions });
-    });
-
-    set({ unsubscribes: [unsub] });
-    return newGameId;
-  },
-
-  joinGame: async (id: string, gameName: string): Promise<"success" | "failed" | "locked"> => {
-    if (isJoining) return "locked";
-    isJoining = true;
-
-    try {
-      if (get().gameId) return "success";
-
+    createGame: async (gameName: string) => {
+      if (get().gameId) return;
       const gameInfo = findGame(gameName);
-      if (!gameInfo) {
-        set({ disconnectionMessage: `Invalid game type: ${gameName}` });
-        return "failed";
-      }
-
-      const gameRef = doc(db, "games", id);
-      const gameSnap = await getDoc(gameRef);
-
-      if (!gameSnap.exists()) {
-        set({ disconnectionMessage: "Game not found or has been ended by the host." });
-        return "failed";
-      }
-
-      const gameData = gameSnap.data();
-      const existingPlayers = gameData.players as Player[];
-
-      if (existingPlayers.length >= gameInfo.maxPlayers) {
-        set({ disconnectionMessage: "This game lobby is already full." });
-        return "failed";
-      }
-
-      get().resetStore();
-
-      const unsub = onSnapshot(gameRef, (snapshot) => {
-        if (!snapshot.exists()) {
-          set({ disconnectionMessage: "The host has left the game." });
-        } else {
-          const data = snapshot.data();
-          if (get().gamePhase !== "in-game" && data.gameState) {
-            set({ gameState: data.gameState });
-          }
-          if (data.options) {
-            set({ gameOptions: data.options });
-          }
-        }
-      });
-
-      const guestId = `p${Math.random().toString(36).substring(2, 9)}`;
-      const guestPlayer: Player = { id: guestId, username: `Player ${existingPlayers.length + 1}` };
-
-      set({
-        gameId: id,
-        gameName,
-        gameInfo,
-        playerId: guestId,
-        players: [...existingPlayers, guestPlayer],
-        gamePhase: "lobby",
-        gameOptions: gameData.options || {},
-        unsubscribes: [unsub],
-      });
-
-      await updateDoc(gameRef, { players: arrayUnion(guestPlayer) });
-      useConnectionStore.getState().initAsGuest(id, guestId, "p1");
-      return "success";
-    } finally {
-      isJoining = false;
-    }
-  },
-
-  notifyLeave: () => {
-    const { isHost } = useConnectionStore.getState();
-    if (!isHost) {
-      useConnectionStore.getState().sendMessageToHost({ type: "player_leaving" });
-    }
-  },
-
-  leaveGame: async () => {
-    get().notifyLeave();
-    const { isHost } = useConnectionStore.getState();
-    const { gameId } = get();
-
-    if (isHost && gameId) {
-      await deleteDoc(doc(db, "games", gameId));
-    }
-
-    get().resetStore();
-  },
-
-  resetSession: () => {
-    useConnectionStore.getState().leaveSession();
-    get().unsubscribes.forEach((unsub) => unsub());
-
-    set((state) => ({
-      gameId: null,
-      gameName: state.gameName,
-      gameInfo: state.gameInfo,
-      playerId: null,
-      players: [],
-      gamePhase: "lobby",
-      gameState: null,
-      gameOptions: {},
-      unsubscribes: [],
-      disconnectionMessage: state.disconnectionMessage,
-    }));
-  },
-
-  clearDisconnectionMessage: () => {
-    set({ disconnectionMessage: null });
-  },
-
-  resetStore: () => {
-    useConnectionStore.getState().leaveSession();
-    get().unsubscribes.forEach((unsub) => unsub());
-    set({
-      gameId: null,
-      gameName: null,
-      gameInfo: null,
-      playerId: null,
-      players: [],
-      gamePhase: "lobby",
-      gameState: null,
-      gameOptions: {},
-      disconnectionMessage: null,
-      unsubscribes: [],
-    });
-  },
-
-  setMyUsername: (newUsername: string) => {
-    const { playerId, players, gameId } = get();
-    const { isHost, sendMessageToHost } = useConnectionStore.getState();
-    if (!playerId || !newUsername.trim()) return;
-
-    if (isHost) {
-      const updatedPlayers = players.map((p) => (p.id === playerId ? { ...p, username: newUsername } : p));
-      set({ players: updatedPlayers });
-      useConnectionStore.getState().broadcastMessage({ type: "sync_players", payload: updatedPlayers });
-      if (gameId) updateDoc(doc(db, "games", gameId), { players: updatedPlayers });
-    } else {
-      sendMessageToHost({ type: "username_change", payload: { newUsername } });
-    }
-  },
-
-  setGameOptions: (newOptions: Record<string, any>) => {
-    const { gameId, gameOptions } = get();
-    const { isHost } = useConnectionStore.getState();
-    if (!isHost || !gameId) return;
-
-    const updatedOptions = { ...gameOptions, ...newOptions };
-    set({ gameOptions: updatedOptions });
-    updateDoc(doc(db, "games", gameId), { options: updatedOptions });
-  },
-
-  performAction: (action: Omit<GameAction, "playerId">) => {
-    const { playerId, gamePhase } = get();
-    const { isHost, sendMessageToHost } = useConnectionStore.getState();
-    if (gamePhase !== "in-game" || !playerId) return;
-
-    const fullAction: GameAction = { ...action, playerId };
-    if (isHost) {
-      get().handleMessage({ type: "game_action", payload: fullAction }, playerId);
-    } else {
-      sendMessageToHost({ type: "game_action", payload: fullAction });
-    }
-  },
-
-  startGame: () => {
-    const { gameInfo, players, gameId, gameState, gameOptions } = get();
-    const { isHost, broadcastMessage } = useConnectionStore.getState();
-    if (!isHost || !gameInfo) return;
-
-    const newGameState = gameInfo.getInitialState(
-      players.map((p) => p.id),
-      gameState,
-      gameOptions
-    );
-    const newPhase = "in-game";
-    set({ gameState: newGameState, gamePhase: newPhase });
-
-    broadcastMessage({ type: "start_game", payload: newGameState });
-    if (gameId) {
-      updateDoc(doc(db, "games", gameId), { gameState: newGameState, gamePhase: newPhase });
-    }
-  },
-
-  playAgain: () => {
-    get().startGame();
-  },
-
-  returnToLobby: () => {
-    const { isHost, broadcastMessage } = useConnectionStore.getState();
-    const { gameId } = get();
-    if (!isHost || !gameId) return;
-
-    set({ gamePhase: "lobby", gameState: null });
-    broadcastMessage({ type: "return_to_lobby" });
-    updateDoc(doc(db, "games", gameId), { gamePhase: "lobby", gameState: null });
-  },
-
-  handlePlayerConnect: (connectedPlayerId: PlayerId) => {
-    const { isHost } = useConnectionStore.getState();
-    if (isHost) {
-      const { players, gameState, gamePhase, gameOptions } = get();
-      useConnectionStore.getState().sendMessageToGuest(connectedPlayerId, {
-        type: "sync_full_game_state",
-        payload: { players, gameState, gamePhase, gameOptions },
-      });
-    }
-  },
-
-  handleMessage: (message: GameMessage, fromPlayerId: PlayerId) => {
-    const { isHost } = useConnectionStore.getState();
-    if (!isHost) return;
-
-    const { players, gameId, gameInfo, gameState } = get();
-
-    switch (message.type) {
-      case "player_leaving": {
-        get().handlePlayerDisconnect(fromPlayerId);
-        break;
-      }
-      case "username_change": {
-        const updatedPlayers = players.map((p) =>
-          p.id === fromPlayerId ? { ...p, username: message.payload.newUsername } : p
-        );
-        set({ players: updatedPlayers });
-        useConnectionStore.getState().broadcastMessage({ type: "sync_players", payload: updatedPlayers });
-        if (gameId) updateDoc(doc(db, "games", gameId), { players: updatedPlayers });
-        break;
-      }
-      case "game_action": {
-        if (!gameInfo || !gameState || !gameInfo.isTurnOf(gameState, message.payload.playerId)) return;
-        const newGameState = gameInfo.handleAction(gameState, message.payload);
-        const newPhase = gameInfo.isGameOver(newGameState) ? "post-game" : "in-game";
-        set({ gameState: newGameState, gamePhase: newPhase });
-        useConnectionStore.getState().broadcastMessage({ type: "game_state_update", payload: newGameState });
-        if (gameId) {
-          updateDoc(doc(db, "games", gameId), { gameState: newGameState, gamePhase: newPhase });
-        }
-        break;
-      }
-    }
-  },
-
-  handlePlayerDisconnect: async (disconnectedPlayerId: PlayerId) => {
-    const { isHost, broadcastMessage } = useConnectionStore.getState();
-    if (isHost) {
-      const { gameId, players, gameInfo, gameOptions, gamePhase } = get();
       if (!gameInfo) return;
 
-      const updatedPlayers = players.filter((p) => p.id !== disconnectedPlayerId);
+      get().resetStore();
+      const hostId = "p1";
+      const hostPlayer: Player = { id: hostId, username: "Player 1" };
+      const newGameId = await gameService.createGameInFirestore(gameInfo, hostPlayer);
 
-      if (updatedPlayers.length < players.length) {
-        if (gamePhase === "in-game" && updatedPlayers.length >= gameInfo.minPlayers) {
+      set((state) => {
+        state.gameId = newGameId;
+        state.gameName = gameName;
+        state.playerId = hostId;
+        state.players = [hostPlayer];
+        state.gamePhase = "lobby";
+        state.gameOptions =
+          gameInfo.gameOptions?.reduce((acc, opt) => {
+            acc[opt.id] = opt.defaultValue;
+            return acc;
+          }, {} as Record<string, any>) || {};
+      });
+
+      useConnectionStore.getState().initAsHost(newGameId);
+
+      const unsub = onSnapshot(doc(db, "games", newGameId), (snapshot) => {
+        if (!snapshot.exists()) {
+          get().leaveGame();
+          return;
+        }
+        const data = snapshot.data();
+        const { players: currentLocalPlayers, gameId: currentLobbyId } = get();
+        if (currentLobbyId !== newGameId) return;
+
+        if (data.players.length > currentLocalPlayers.length) {
+          const localPlayerIds = new Set(currentLocalPlayers.map((p) => p.id));
+          const newPlayer = data.players.find((p: Player) => !localPlayerIds.has(p.id));
+          if (newPlayer) {
+            set((state) => {
+              state.players.push(newPlayer);
+            });
+            useConnectionStore.getState().initiateConnectionForGuest(newPlayer.id);
+          }
+        }
+        set((state) => {
+          state.gameOptions = data.options;
+        });
+      });
+
+      set((state) => {
+        state.unsubscribes = [unsub];
+      });
+      return newGameId;
+    },
+
+    joinGame: async (id: string, gameName: string) => {
+      if (isJoining) return "locked";
+      isJoining = true;
+
+      try {
+        if (get().gameId) return "success";
+        const gameInfo = findGame(gameName);
+        if (!gameInfo) throw new Error(`Invalid game type: ${gameName}`);
+
+        const gameData = await gameService.joinGameInFirestore(id, gameInfo);
+
+        get().resetStore();
+
+        const guestId = `p${Math.random().toString(36).substring(2, 9)}`;
+        const guestPlayer: Player = { id: guestId, username: `Player ${gameData.players.length + 1}` };
+
+        set((state) => {
+          state.gameId = id;
+          state.gameName = gameName;
+          state.playerId = guestId;
+          state.players = [...gameData.players, guestPlayer];
+          state.gamePhase = "lobby";
+          state.gameOptions = gameData.options || {};
+        });
+
+        await gameService.addPlayerToFirestore(id, guestPlayer);
+        useConnectionStore.getState().initAsGuest(id, guestId, "p1");
+
+        const unsub = onSnapshot(doc(db, "games", id), (snapshot) => {
+          if (!snapshot.exists()) {
+            set((state) => {
+              state.disconnectionMessage = "The host has left the game.";
+            });
+          } else {
+            const data = snapshot.data();
+            set((state) => {
+              if (state.gamePhase !== "in-game") state.gameState = data.gameState;
+              state.gameOptions = data.options;
+            });
+          }
+        });
+        set((state) => {
+          state.unsubscribes = [unsub];
+        });
+        return "success";
+      } catch (error: any) {
+        set({ disconnectionMessage: error.message });
+        return "failed";
+      } finally {
+        isJoining = false;
+      }
+    },
+
+    leaveGame: async () => {
+      get().notifyLeave();
+      const { isHost } = useConnectionStore.getState();
+      const { gameId } = get();
+      if (isHost && gameId) {
+        await gameService.deleteGameInFirestore(gameId);
+      }
+      get().resetStore();
+    },
+
+    notifyLeave: () => {
+      const { isHost } = useConnectionStore.getState();
+      if (!isHost) {
+        useConnectionStore.getState().sendMessageToHost({ type: "player_leaving" });
+      }
+    },
+
+    setMyUsername: (newUsername: string) => {
+      const { playerId, players, gameId } = get();
+      const { isHost, sendMessageToHost } = useConnectionStore.getState();
+      if (!playerId || !newUsername.trim()) return;
+
+      if (isHost) {
+        const updatedPlayers = players.map((p) => (p.id === playerId ? { ...p, username: newUsername } : p));
+        set((state) => {
+          state.players = updatedPlayers;
+        });
+        useConnectionStore.getState().broadcastMessage({ type: "sync_players", payload: updatedPlayers });
+        if (gameId) gameService.updatePlayersInFirestore(gameId, updatedPlayers);
+      } else {
+        sendMessageToHost({ type: "username_change", payload: { newUsername } });
+      }
+    },
+
+    setGameOptions: (newOptions: Record<string, any>) => {
+      const { gameId, gameOptions } = get();
+      const { isHost } = useConnectionStore.getState();
+      if (!isHost || !gameId) return;
+
+      const updatedOptions = { ...gameOptions, ...newOptions };
+      set({ gameOptions: updatedOptions });
+      gameService.updateOptionsInFirestore(gameId, updatedOptions);
+    },
+
+    startGame: () => {
+      const { players, gameId, gameState, gameOptions, gameName } = get();
+      const gameInfo = findGame(gameName!);
+      const { isHost, broadcastMessage } = useConnectionStore.getState();
+      if (!isHost || !gameInfo) return;
+
+      const newGameState = gameInfo.getInitialState(
+        players.map((p) => p.id),
+        gameState,
+        gameOptions
+      );
+      const newPhase = "in-game";
+      set((state) => {
+        state.gameState = newGameState;
+        state.gamePhase = newPhase;
+      });
+
+      broadcastMessage({ type: "start_game", payload: newGameState });
+      if (gameId) {
+        gameService.updateGameStateInFirestore(gameId, newGameState, newPhase);
+      }
+    },
+
+    returnToLobby: () => {
+      const { isHost, broadcastMessage } = useConnectionStore.getState();
+      const { gameId } = get();
+      if (!isHost || !gameId) return;
+
+      set((state) => {
+        state.gamePhase = "lobby";
+        state.gameState = null;
+      });
+      broadcastMessage({ type: "return_to_lobby" });
+      gameService.updateGameStateInFirestore(gameId, null, "lobby");
+    },
+
+    performAction: (action: Omit<GameAction, "playerId">) => {
+      const { playerId, gamePhase } = get();
+      const { isHost, sendMessageToHost } = useConnectionStore.getState();
+      if (gamePhase !== "in-game" || !playerId) return;
+
+      const fullAction: GameAction = { ...action, playerId };
+      if (isHost) {
+        get().handleMessage({ type: "game_action", payload: fullAction }, playerId);
+      } else {
+        sendMessageToHost({ type: "game_action", payload: fullAction });
+      }
+    },
+
+    handleMessage: (message: GameMessage, fromPlayerId: PlayerId) => {
+      const { isHost } = useConnectionStore.getState();
+      if (!isHost) return;
+      const { players, gameId, gameState, gameName } = get();
+      const gameInfo = findGame(gameName!);
+
+      switch (message.type) {
+        case "player_leaving": {
+          get().handlePlayerDisconnect(fromPlayerId);
+          break;
+        }
+        case "username_change": {
+          const updatedPlayers = players.map((p) =>
+            p.id === fromPlayerId ? { ...p, username: message.payload.newUsername } : p
+          );
           set({ players: updatedPlayers });
-
+          useConnectionStore.getState().broadcastMessage({ type: "sync_players", payload: updatedPlayers });
+          if (gameId) gameService.updatePlayersInFirestore(gameId, updatedPlayers);
+          break;
+        }
+        case "game_action": {
+          if (!gameInfo || !gameState || !gameInfo.isTurnOf(gameState, message.payload.playerId)) return;
+          const newGameState = gameInfo.handleAction(gameState, message.payload);
+          const newPhase = gameInfo.isGameOver(newGameState) ? "post-game" : "in-game";
+          set({ gameState: newGameState, gamePhase: newPhase });
+          useConnectionStore.getState().broadcastMessage({ type: "game_state_update", payload: newGameState });
           if (gameId) {
-            await updateDoc(doc(db, "games", gameId), {
-              players: updatedPlayers,
-              [`connections.${disconnectedPlayerId}`]: deleteField(),
-            });
+            gameService.updateGameStateInFirestore(gameId, newGameState, newPhase);
           }
-
-          broadcastMessage({
-            type: "sync_players",
-            payload: updatedPlayers,
-          });
-        } else {
-          const newGameState = null;
-          const newPhase = "lobby";
-
-          set({
-            players: updatedPlayers,
-            gameState: newGameState,
-            gamePhase: newPhase,
-          });
-
-          if (gameId) {
-            await updateDoc(doc(db, "games", gameId), {
-              players: updatedPlayers,
-              gameState: newGameState,
-              gamePhase: newPhase,
-              [`connections.${disconnectedPlayerId}`]: deleteField(),
-            });
-          }
-
-          broadcastMessage({
-            type: "sync_full_game_state",
-            payload: { players: updatedPlayers, gameState: newGameState, gamePhase: newPhase, gameOptions },
-          });
+          break;
         }
       }
-    } else {
-      if (disconnectedPlayerId === "p1") {
-        set({ disconnectionMessage: "The host has disconnected." });
-      }
-    }
-  },
-}));
+    },
 
+    handlePlayerConnect: (connectedPlayerId: PlayerId) => {
+      const { isHost } = useConnectionStore.getState();
+      if (isHost) {
+        const { players, gameState, gamePhase, gameOptions } = get();
+        useConnectionStore.getState().sendMessageToGuest(connectedPlayerId, {
+          type: "sync_full_game_state",
+          payload: { players, gameState, gamePhase, gameOptions },
+        });
+      }
+    },
+
+    handlePlayerDisconnect: async (disconnectedPlayerId: PlayerId) => {
+      const { isHost, broadcastMessage } = useConnectionStore.getState();
+      if (isHost) {
+        const { gameId, players, gameOptions, gamePhase, gameName } = get();
+        const gameInfo = findGame(gameName!);
+        if (!gameInfo) return;
+
+        const updatedPlayers = players.filter((p) => p.id !== disconnectedPlayerId);
+        if (updatedPlayers.length >= players.length) return;
+
+        await gameService.removePlayerConnectionInFirestore(gameId!, disconnectedPlayerId);
+
+        if (gamePhase === "in-game" && updatedPlayers.length >= gameInfo.minPlayers) {
+          set({ players: updatedPlayers });
+          await gameService.updatePlayersInFirestore(gameId!, updatedPlayers);
+          broadcastMessage({ type: "sync_players", payload: updatedPlayers });
+        } else {
+          set({ players: updatedPlayers, gameState: null, gamePhase: "lobby" });
+          await gameService.updatePlayersInFirestore(gameId!, updatedPlayers);
+          await gameService.updateGameStateInFirestore(gameId!, null, "lobby");
+          broadcastMessage({
+            type: "sync_full_game_state",
+            payload: { players: updatedPlayers, gameState: null, gamePhase: "lobby", gameOptions },
+          });
+        }
+      } else {
+        if (disconnectedPlayerId === "p1") {
+          set({ disconnectionMessage: "The host has disconnected." });
+        }
+      }
+    },
+
+    resetStore: () => {
+      useConnectionStore.getState().leaveSession();
+      get().unsubscribes.forEach((unsub) => unsub());
+      set({
+        gameId: null,
+        gameName: null,
+        playerId: null,
+        players: [],
+        gamePhase: "lobby",
+        gameState: null,
+        gameOptions: {},
+        disconnectionMessage: null,
+        unsubscribes: [],
+      });
+    },
+
+    resetSession: () => {
+      useConnectionStore.getState().leaveSession();
+      get().unsubscribes.forEach((unsub) => unsub());
+      set((state) => ({
+        gameId: null,
+        playerId: null,
+        players: [],
+        gamePhase: "lobby",
+        gameState: null,
+        gameOptions: {},
+        unsubscribes: [],
+        gameName: state.gameName,
+        disconnectionMessage: state.disconnectionMessage,
+      }));
+    },
+
+    clearDisconnectionMessage: () => {
+      set({ disconnectionMessage: null });
+    },
+  }))
+);
+
+// This part connects the two stores
 useConnectionStore.setState({
   onMessageCallback: (message, fromPlayerId) => {
     const { getState, setState } = useGameStore;
@@ -471,7 +413,8 @@ useConnectionStore.setState({
         setState({ gameState: message.payload, gamePhase: "in-game" });
         break;
       case "game_state_update":
-        const gameInfo = getState().gameInfo;
+        const gameName = getState().gameName;
+        const gameInfo = findGame(gameName!);
         const newGameState = message.payload;
         setState({
           gameState: newGameState,
