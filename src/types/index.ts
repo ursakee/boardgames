@@ -33,13 +33,14 @@ export type GameRegistryEntry<TGameState = any> = {
   minPlayers: number;
   maxPlayers: number;
   gameOptions?: GameOption[];
+
   getInitialState: (playerIds: PlayerId[], currentState?: TGameState, options?: Record<string, any>) => TGameState;
   handleAction: (currentState: TGameState, action: GameAction) => TGameState;
   getGameStatus: (gameState: TGameState, players: Player[]) => string;
   isGameOver: (gameState: TGameState) => boolean;
   isTurnOf: (gameState: TGameState, playerId: PlayerId) => boolean;
-  BoardComponent: LazyExoticComponent<FC<GameBoardComponentProps<TGameState>>>;
 
+  BoardComponent: LazyExoticComponent<FC<GameBoardComponentProps<TGameState>>>;
   LobbyPageComponent: LazyExoticComponent<FC>;
   GamePageComponent: LazyExoticComponent<FC>;
 };

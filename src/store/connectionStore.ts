@@ -8,7 +8,6 @@ import type { PlayerId } from "../types";
 
 // --- Types ---
 export type ConnectionState = "idle" | "connecting" | "connected" | "disconnected" | "failed" | "closed";
-export type DataChannelState = "closed" | "connecting" | "open";
 type GameMessage = any;
 
 interface ConnectionSlot {
