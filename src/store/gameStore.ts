@@ -151,25 +151,10 @@ export const useGameStore = create(
           state.gameOptions = gameData.options || {};
         });
 
-        await gameService.addPlayerToFirestore(id, guestPlayer);
         useConnectionStore.getState().initAsGuest(id, guestId, "p1");
 
-        const unsub = onSnapshot(doc(db, "games", id), (snapshot) => {
-          if (!snapshot.exists()) {
-            set((state) => {
-              state.disconnectionMessage = "The host has left the game.";
-            });
-          } else {
-            const data = snapshot.data();
-            set((state) => {
-              if (state.gamePhase !== "in-game") state.gameState = data.gameState;
-              state.gameOptions = data.options;
-            });
-          }
-        });
-        set((state) => {
-          state.unsubscribes = [unsub];
-        });
+        await gameService.addPlayerToFirestore(id, guestPlayer);
+
         return "success";
       } catch (error: any) {
         set({ disconnectionMessage: error.message });

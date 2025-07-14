@@ -161,6 +161,11 @@ export const useConnectionStore = create(
       const pc = _createPeerConnection(gameId, selfId, hostId, false, get, set);
       const unsub = onSnapshot(doc(db, "games", gameId), async (snapshot) => {
         const data = snapshot.data();
+        if (!snapshot.exists()) {
+          useGameStore.getState().handlePlayerDisconnect(hostId);
+          return;
+        }
+
         const slot = data?.connections?.[selfId] as ConnectionSlot | undefined;
         if (!slot) return;
 
