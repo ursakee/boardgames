@@ -1,6 +1,6 @@
 import type { Player } from "../../../store/gameStore";
-import type { GameAction, PlayerId } from "../../../types";
-import type { BrainTrainGameState, Difficulty, GridState, PlayerState } from "../types";
+import type { PlayerId } from "../../../types";
+import type { BrainTrainGameState, BrainTrainAction, Difficulty, PlayerState } from "../types";
 import { generatePuzzle } from "./puzzleGenerator";
 import { validateSolution } from "./solutionValidator";
 
@@ -33,37 +33,41 @@ export const getInitialState = (
   };
 };
 
-export const handleAction = (currentState: BrainTrainGameState, action: GameAction): BrainTrainGameState => {
-  if (action.type === "RETURN_TO_LOBBY") {
-    const playerIds = Object.keys(currentState.playerStates);
-    return getInitialState(playerIds, currentState, currentState.options);
+export const handleAction = (currentState: BrainTrainGameState, action: BrainTrainAction): BrainTrainGameState => {
+  switch (action.type) {
+    case "RETURN_TO_LOBBY": {
+      const playerIds = Object.keys(currentState.playerStates);
+      return getInitialState(playerIds, currentState, currentState.options);
+    }
+
+    case "SUBMIT_SOLUTION": {
+      if (currentState.winner || currentState.playerStates[action.playerId]?.submitted) {
+        return currentState;
+      }
+
+      const playerGridState = action.payload;
+      const isCorrect = validateSolution(playerGridState, currentState.puzzle);
+
+      const newPlayerStates = JSON.parse(JSON.stringify(currentState.playerStates));
+      const playerState = newPlayerStates[action.playerId];
+      playerState.submitted = true;
+      playerState.submissionResult = isCorrect ? "correct" : "incorrect";
+
+      let winner: BrainTrainGameState["winner"] = currentState.winner;
+      if (isCorrect) {
+        winner = action.playerId;
+      }
+
+      return {
+        ...currentState,
+        playerStates: newPlayerStates,
+        winner,
+      };
+    }
+
+    default:
+      return currentState;
   }
-
-  if (action.type !== "SUBMIT_SOLUTION") {
-    return currentState;
-  }
-  if (currentState.winner || currentState.playerStates[action.playerId]?.submitted) {
-    return currentState;
-  }
-
-  const playerGridState = action.payload as GridState;
-  const isCorrect = validateSolution(playerGridState, currentState.puzzle);
-
-  const newPlayerStates = JSON.parse(JSON.stringify(currentState.playerStates));
-  const playerState = newPlayerStates[action.playerId];
-  playerState.submitted = true;
-  playerState.submissionResult = isCorrect ? "correct" : "incorrect";
-
-  let winner: BrainTrainGameState["winner"] = currentState.winner;
-  if (isCorrect) {
-    winner = action.playerId;
-  }
-
-  return {
-    ...currentState,
-    playerStates: newPlayerStates,
-    winner,
-  };
 };
 
 export const isGameOver = (gameState: BrainTrainGameState): boolean => {

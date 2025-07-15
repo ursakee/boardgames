@@ -1,18 +1,16 @@
 import React from "react";
 import type { GameBoardComponentProps } from "../../../types";
-import type { TicTacToeGameState } from "../types";
+import type { TicTacToeGameState, TicTacToeAction } from "../types";
 import { useGameStore } from "../../../store/gameStore";
 import { LogOut, Circle, XIcon } from "lucide-react";
 
 const RADIUS = 38;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-// Create a more specific props interface for this component
-interface TicTacToeBoardProps extends GameBoardComponentProps<TicTacToeGameState> {
-  turnTimeLeft?: number | null; // Make this prop optional
+interface TicTacToeBoardProps extends GameBoardComponentProps<TicTacToeGameState, TicTacToeAction> {
+  turnTimeLeft?: number | null;
 }
 
-// A new sub-component for the player cards to keep the code clean
 const PlayerCard: React.FC<{
   symbol: "X" | "O";
   isNext: boolean;

@@ -9,12 +9,12 @@ export interface GameAction {
   playerId: PlayerId;
 }
 
-export interface GameBoardComponentProps<TGameState> {
+export interface GameBoardComponentProps<TGameState, TGameAction extends GameAction = GameAction> {
   gameState: TGameState;
   statusMessage: string;
   isGameOver: boolean;
   isMyTurn: boolean;
-  onPerformAction: (action: Omit<GameAction, "playerId">) => void;
+  onPerformAction: (action: Omit<TGameAction, "playerId">) => void;
   onLeaveGame: () => void;
   privateState?: any;
 }
@@ -34,7 +34,7 @@ export type HandleActionResult<TGameState> =
       privateStates: Record<PlayerId, any>;
     };
 
-export type GameRegistryEntry<TGameState = any> = {
+export type GameRegistryEntry<TGameState = any, TGameAction extends GameAction = GameAction> = {
   id: string;
   displayName: string;
   description: string;
@@ -43,12 +43,12 @@ export type GameRegistryEntry<TGameState = any> = {
   gameOptions?: GameOption[];
 
   getInitialState: (playerIds: PlayerId[], currentState?: TGameState, options?: Record<string, any>) => TGameState;
-  handleAction: (currentState: TGameState, action: GameAction) => HandleActionResult<TGameState>;
+  handleAction: (currentState: TGameState, action: TGameAction) => HandleActionResult<TGameState>;
   getGameStatus: (gameState: TGameState, players: Player[]) => string;
   isGameOver: (gameState: TGameState) => boolean;
   isTurnOf: (gameState: TGameState, playerId: PlayerId) => boolean;
 
-  BoardComponent: LazyExoticComponent<FC<GameBoardComponentProps<TGameState>>>;
+  BoardComponent: LazyExoticComponent<FC<GameBoardComponentProps<TGameState, TGameAction>>>;
   LobbyPageComponent: LazyExoticComponent<FC>;
   GamePageComponent: LazyExoticComponent<FC>;
 };

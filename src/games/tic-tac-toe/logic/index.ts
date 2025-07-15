@@ -1,6 +1,6 @@
 import type { Player } from "../../../store/gameStore";
-import type { PlayerId, GameAction } from "../../../types";
-import type { TicTacToeGameState, TicTacToeValue } from "../types";
+import type { PlayerId } from "../../../types";
+import type { TicTacToeGameState, TicTacToeAction, TicTacToeValue } from "../types";
 
 export const getInitialState = (
   playerIds: PlayerId[],
@@ -28,12 +28,8 @@ export const getInitialState = (
   };
 };
 
-export const handleAction = (currentState: TicTacToeGameState, action: GameAction): TicTacToeGameState => {
-  if (action.type !== "MAKE_MOVE") {
-    return currentState;
-  }
-
-  const moveIndex = action.payload as number;
+export const handleAction = (currentState: TicTacToeGameState, action: TicTacToeAction): TicTacToeGameState => {
+  const moveIndex = action.payload;
   const playerSymbol = currentState.playerMap[action.playerId];
 
   if (!playerSymbol || currentState.board[moveIndex] || currentState.winner || currentState.isNext !== playerSymbol) {
@@ -47,12 +43,12 @@ export const handleAction = (currentState: TicTacToeGameState, action: GameActio
   const lines = [
     [0, 1, 2],
     [3, 4, 5],
-    [6, 7, 8], // rows
+    [6, 7, 8],
     [0, 3, 6],
     [1, 4, 7],
-    [2, 5, 8], // columns
+    [2, 5, 8],
     [0, 4, 8],
-    [2, 4, 6], // diagonals
+    [2, 4, 6],
   ];
 
   let winner: TicTacToeValue | "draw" | null = null;
@@ -66,10 +62,9 @@ export const handleAction = (currentState: TicTacToeGameState, action: GameActio
 
   if (!winner && newBoard.every(Boolean)) {
     winner = "draw";
-  } // Create a mutable copy of the scores to update them.
+  }
 
-  const newScores = { ...currentState.scores }; // If there's a winner (and it's not a draw), find the winning player and increment their score.
-
+  const newScores = { ...currentState.scores };
   if (winner && winner !== "draw") {
     const winnerId = Object.keys(currentState.playerMap).find((id) => currentState.playerMap[id] === winner);
     if (winnerId) {

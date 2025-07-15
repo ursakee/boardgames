@@ -1,4 +1,4 @@
-import type { PlayerId } from "../../types";
+import type { GameAction, PlayerId } from "../../types";
 
 export type TicTacToeValue = "X" | "O";
 
@@ -12,3 +12,10 @@ export interface TicTacToeGameState {
     turnTimer: number;
   };
 }
+
+export type MakeMoveAction = GameAction & {
+  type: "MAKE_MOVE";
+  payload: number;
+};
+
+export type TicTacToeAction = MakeMoveAction;

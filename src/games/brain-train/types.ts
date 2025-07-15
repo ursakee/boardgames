@@ -1,4 +1,4 @@
-import type { PlayerId } from "../../types";
+import type { GameAction, PlayerId } from "../../types";
 
 export type Difficulty = "easy" | "medium" | "hard" | "veryhard";
 
@@ -22,17 +22,10 @@ export interface Train {
 
 export interface BrainTrainPuzzle {
   difficulty: Difficulty;
-  grid: {
-    rows: number;
-    columns: number;
-    gridSize: number;
-  };
+  grid: { rows: number; columns: number; gridSize: number };
   tracks: Track[];
   trains: Train[];
-  clues: {
-    rowClues: number[];
-    columnClues: number[];
-  };
+  clues: { rowClues: number[]; columnClues: number[] };
 }
 
 export type GridCell = {
@@ -62,3 +55,15 @@ export interface BrainTrainGameState {
     difficulty: Difficulty;
   };
 }
+
+export type SubmitSolutionAction = GameAction & {
+  type: "SUBMIT_SOLUTION";
+  payload: GridState;
+};
+
+export type ReturnToLobbyAction = GameAction & {
+  type: "RETURN_TO_LOBBY";
+  payload: null;
+};
+
+export type BrainTrainAction = SubmitSolutionAction | ReturnToLobbyAction;

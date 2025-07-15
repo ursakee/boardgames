@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
 import type { GameBoardComponentProps } from "../../../types";
-import type { BrainTrainGameState, GridState } from "../types";
+import type { BrainTrainGameState, GridState, BrainTrainAction } from "../types";
 import { PuzzleGrid } from "./PuzzleGrid";
 import { TrainCars } from "./TrainCars";
 import { Loader, Play, Home, Settings, XCircle } from "lucide-react";
 import { useGameSession } from "../../../hooks/useGameSession";
 
-type BrainTrainBoardProps = GameBoardComponentProps<BrainTrainGameState>;
+type BrainTrainBoardProps = GameBoardComponentProps<BrainTrainGameState, BrainTrainAction>;
 
 const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver, onPerformAction, onLeaveGame }) => {
   const { localPlayer, isHost, startGame, gameOptions, setGameOptions, gameInfo, returnToLobby } = useGameSession();
@@ -87,6 +87,7 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver
           />
         </div>
       </div>
+
       {isGameOver && (
         <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center transition-opacity duration-300 animate-in fade-in">
           <div className="text-center p-6 bg-slate-800/80 rounded-2xl border border-slate-700 shadow-xl">
