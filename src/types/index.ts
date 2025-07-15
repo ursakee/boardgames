@@ -16,6 +16,7 @@ export interface GameBoardComponentProps<TGameState> {
   isMyTurn: boolean;
   onPerformAction: (action: Omit<GameAction, "playerId">) => void;
   onLeaveGame: () => void;
+  privateState?: any;
 }
 
 export interface GameOption {
@@ -26,6 +27,13 @@ export interface GameOption {
   choices?: { label: string; value: string | number }[];
 }
 
+export type HandleActionResult<TGameState> =
+  | TGameState
+  | {
+      publicState: TGameState;
+      privateStates: Record<PlayerId, any>;
+    };
+
 export type GameRegistryEntry<TGameState = any> = {
   id: string;
   displayName: string;
@@ -35,7 +43,7 @@ export type GameRegistryEntry<TGameState = any> = {
   gameOptions?: GameOption[];
 
   getInitialState: (playerIds: PlayerId[], currentState?: TGameState, options?: Record<string, any>) => TGameState;
-  handleAction: (currentState: TGameState, action: GameAction) => TGameState;
+  handleAction: (currentState: TGameState, action: GameAction) => HandleActionResult<TGameState>;
   getGameStatus: (gameState: TGameState, players: Player[]) => string;
   isGameOver: (gameState: TGameState) => boolean;
   isTurnOf: (gameState: TGameState, playerId: PlayerId) => boolean;

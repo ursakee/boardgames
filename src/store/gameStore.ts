@@ -24,6 +24,7 @@ type GameMessage =
   | { type: "game_action"; payload: GameAction }
   | { type: "start_game"; payload: any }
   | { type: "game_state_update"; payload: any }
+  | { type: "private_state_update"; payload: any }
   | { type: "sync_players"; payload: Player[] }
   | {
       type: "sync_full_game_state";
@@ -40,8 +41,10 @@ interface GameState {
   gamePhase: GamePhase;
   gameState: any;
   gameOptions: Record<string, any>;
+  privateState: any;
   disconnectionMessage: string | null;
   unsubscribes: Unsubscribe[];
+
   createGame: (gameName: string) => Promise<string | undefined>;
   joinGame: (id: string, gameName: string) => Promise<"success" | "failed" | "locked">;
   leaveGame: () => Promise<void>;
@@ -68,6 +71,7 @@ export const useGameStore = create(
     gamePhase: "lobby",
     gameState: null,
     gameOptions: {},
+    privateState: null,
     disconnectionMessage: null,
     unsubscribes: [],
 
@@ -200,12 +204,13 @@ export const useGameStore = create(
 
     setGameOptions: (newOptions: Record<string, any>) => {
       const { gameId, gameOptions } = get();
-      const { isHost } = useConnectionStore.getState();
+      const { isHost, broadcastMessage } = useConnectionStore.getState();
       if (!isHost || !gameId) return;
 
       const updatedOptions = { ...gameOptions, ...newOptions };
       set({ gameOptions: updatedOptions });
       gameService.updateOptionsInFirestore(gameId, updatedOptions);
+      broadcastMessage({ type: "game_options_change", payload: updatedOptions });
     },
 
     startGame: () => {
@@ -239,6 +244,7 @@ export const useGameStore = create(
       set((state) => {
         state.gamePhase = "lobby";
         state.gameState = null;
+        state.privateState = null;
       });
       broadcastMessage({ type: "return_to_lobby" });
       gameService.updateGameStateInFirestore(gameId, null, "lobby");
@@ -279,10 +285,35 @@ export const useGameStore = create(
         }
         case "game_action": {
           if (!gameInfo || !gameState || !gameInfo.isTurnOf(gameState, message.payload.playerId)) return;
-          const newGameState = gameInfo.handleAction(gameState, message.payload);
+
+          const result = gameInfo.handleAction(gameState, message.payload);
+
+          let newGameState: any;
+          let privateStates: Record<PlayerId, any> | null = null;
+
+          if (result && typeof result === "object" && "publicState" in result) {
+            newGameState = result.publicState;
+            privateStates = result.privateStates;
+          } else {
+            newGameState = result;
+          }
+
           const newPhase = gameInfo.isGameOver(newGameState) ? "post-game" : "in-game";
-          set({ gameState: newGameState, gamePhase: newPhase });
+          set({ gameState: newGameState, gamePhase: newPhase, privateState: privateStates?.[get().playerId!] ?? null });
+
           useConnectionStore.getState().broadcastMessage({ type: "game_state_update", payload: newGameState });
+
+          if (privateStates) {
+            for (const playerId in privateStates) {
+              if (playerId !== get().playerId) {
+                useConnectionStore.getState().sendMessageToGuest(playerId, {
+                  type: "private_state_update",
+                  payload: privateStates[playerId],
+                });
+              }
+            }
+          }
+
           if (gameId) {
             gameService.updateGameStateInFirestore(gameId, newGameState, newPhase);
           }
@@ -345,6 +376,7 @@ export const useGameStore = create(
         gamePhase: "lobby",
         gameState: null,
         gameOptions: {},
+        privateState: null,
         disconnectionMessage: null,
         unsubscribes: [],
       });
@@ -360,6 +392,7 @@ export const useGameStore = create(
         gamePhase: "lobby",
         gameState: null,
         gameOptions: {},
+        privateState: null,
         unsubscribes: [],
         gameName: state.gameName,
         disconnectionMessage: state.disconnectionMessage,
@@ -406,8 +439,14 @@ useConnectionStore.setState({
           gamePhase: gameInfo?.isGameOver(newGameState) ? "post-game" : "in-game",
         });
         break;
+      case "private_state_update":
+        setState({ privateState: message.payload });
+        break;
+      case "game_options_change":
+        setState({ gameOptions: message.payload });
+        break;
       case "return_to_lobby":
-        setState({ gamePhase: "lobby", gameState: null });
+        setState({ gamePhase: "lobby", gameState: null, privateState: null });
         break;
     }
   },
