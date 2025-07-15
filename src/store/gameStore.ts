@@ -113,9 +113,9 @@ export const useGameStore = create(
           const localPlayerIds = new Set(currentLocalPlayers.map((p) => p.id));
           const newPlayer = data.players.find((p: Player) => !localPlayerIds.has(p.id));
           if (newPlayer) {
-            set((state) => {
-              state.players.push(newPlayer);
-            });
+            const updatedPlayers = [...get().players, newPlayer];
+            set({ players: updatedPlayers });
+            useConnectionStore.getState().broadcastMessage({ type: "sync_players", payload: updatedPlayers });
             useConnectionStore.getState().initiateConnectionForGuest(newPlayer.id);
           }
         }
