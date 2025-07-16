@@ -1,33 +1,14 @@
 import React, { useState, useEffect, useMemo } from "react";
 import type { GameBoardComponentProps } from "../../../types";
-import type { BrainTrainGameState, GridState, BrainTrainAction, Position, GridCell } from "../types";
+import type { BrainTrainGameState, GridState, BrainTrainAction, GridCell } from "../types";
 import { PuzzleGrid } from "./PuzzleGrid";
 import { TrainCars } from "./TrainCars";
-import { Loader, Play, Home, Settings, XCircle } from "lucide-react";
+import { Loader, Play, Home, Settings, XCircle, Eye } from "lucide-react";
 import { useGameSession } from "../../../hooks/useGameSession";
+import MistakesViewer from "./MistakesViewer";
+import { getConnections } from "../logic";
 
 type BrainTrainBoardProps = GameBoardComponentProps<BrainTrainGameState, BrainTrainAction>;
-
-function getConnections(cell: Position, path: Position[]): string[] {
-  const index = path.findIndex((p) => p.row === cell.row && p.col === cell.col);
-  if (index === -1) return [];
-  const connections: string[] = [];
-  if (index > 0) {
-    const prev = path[index - 1];
-    if (prev.row < cell.row) connections.push("up");
-    if (prev.row > cell.row) connections.push("down");
-    if (prev.col < cell.col) connections.push("left");
-    if (prev.col > cell.col) connections.push("right");
-  }
-  if (index < path.length - 1) {
-    const next = path[index + 1];
-    if (next.row < cell.row) connections.push("up");
-    if (next.row > cell.row) connections.push("down");
-    if (next.col < cell.col) connections.push("left");
-    if (next.col > cell.col) connections.push("right");
-  }
-  return connections;
-}
 
 const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver, onPerformAction, onLeaveGame }) => {
   const { localPlayer, isHost, startGame, gameOptions, setGameOptions, gameInfo, returnToLobby } = useGameSession();
@@ -36,6 +17,7 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver
   const localPlayerState = localPlayer ? playerStates[localPlayer.id] : null;
 
   const [gridState, setGridState] = useState<GridState | null>(null);
+  const [showMistakes, setShowMistakes] = useState(false);
 
   const puzzleKey = useMemo(() => {
     if (!puzzle) return null;
@@ -43,6 +25,7 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver
   }, [puzzle]);
 
   useEffect(() => {
+    setShowMistakes(false);
     if (puzzle && localPlayerState) {
       const newGridState: GridState = Array(puzzle.grid.rows)
         .fill(null)
@@ -76,6 +59,17 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver
     }
   };
 
+  if (showMistakes && localPlayerState?.submittedGrid && gameState.solution) {
+    return (
+      <MistakesViewer
+        puzzle={puzzle}
+        playerGrid={JSON.parse(localPlayerState.submittedGrid)}
+        solutionGrid={JSON.parse(gameState.solution)}
+        onClose={() => setShowMistakes(false)}
+      />
+    );
+  }
+
   if (!puzzle || !gridState || !localPlayerState || !localPlayer) {
     return <Loader className="animate-spin h-12 w-12 text-cyan-400" />;
   }
@@ -98,6 +92,12 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver
             <XCircle className="h-20 w-20 text-yellow-400 mb-4" />
             <h2 className="text-4xl font-bold text-yellow-400">Incorrect Solution</h2>
             <p className="mt-2 text-slate-300">Waiting for other players to finish...</p>
+            <button
+              onClick={() => setShowMistakes(true)}
+              className="mt-6 flex items-center justify-center gap-2 px-5 py-2.5 font-semibold text-slate-100 bg-slate-600/80 rounded-lg hover:bg-slate-600 transition-colors"
+            >
+              <Eye size={18} /> See Mistakes
+            </button>
           </div>
         )}
 
@@ -105,9 +105,11 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver
           <h3 className="text-xl font-bold text-center text-slate-200 border-b border-slate-600 pb-2">
             Available Trains
           </h3>
+
           <div className="flex-grow">
             <TrainCars tracks={puzzle.tracks} trains={puzzle.trains} fixedTrainId={localPlayerState.fixedTrainId} />
           </div>
+
           <button
             onClick={handleSubmit}
             disabled={isGameOver || localPlayerState.submitted}
@@ -115,6 +117,7 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver
           >
             Submit Solution
           </button>
+
           <button
             onClick={onLeaveGame}
             className="w-full px-4 py-2 font-semibold text-slate-300 bg-red-800/50 rounded-lg hover:bg-red-700/80"
@@ -122,6 +125,7 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver
             Leave Game
           </button>
         </div>
+
         <div className="flex-grow flex items-center justify-center">
           <PuzzleGrid
             puzzle={puzzle}
@@ -137,6 +141,15 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver
         <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center transition-opacity duration-300 animate-in fade-in">
           <div className="text-center p-6 bg-slate-800/80 rounded-2xl border border-slate-700 shadow-xl">
             <h2 className={`text-6xl font-black ${color}`}>{message}</h2>
+            {localPlayerState.submissionResult === "incorrect" && (
+              <button
+                onClick={() => setShowMistakes(true)}
+                className="mt-6 flex items-center justify-center gap-2 px-5 py-2.5 font-semibold text-slate-100 bg-slate-600/80 rounded-lg hover:bg-slate-600 transition-colors"
+              >
+                <Eye size={18} /> Review Mistakes
+              </button>
+            )}
+
             {isHost && (
               <div className="mt-8 flex flex-col items-center gap-4 w-64 mx-auto">
                 {/* --- Difficulty Dropdown --- */}

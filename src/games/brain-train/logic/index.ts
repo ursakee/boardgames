@@ -1,8 +1,66 @@
 import type { Player } from "../../../store/gameStore";
 import type { PlayerId } from "../../../types";
-import type { BrainTrainGameState, BrainTrainAction, Difficulty, PlayerState } from "../types";
+import type {
+  BrainTrainGameState,
+  BrainTrainAction,
+  Difficulty,
+  PlayerState,
+  GridState,
+  GridCell,
+  Position,
+} from "../types";
 import { generatePuzzle } from "./puzzleGenerator";
 import { validateSolution } from "./solutionValidator";
+
+export function getConnections(cell: Position, path: Position[]): string[] {
+  const index = path.findIndex((p) => p.row === cell.row && p.col === cell.col);
+  if (index === -1) return [];
+  const connections: string[] = [];
+  if (index > 0) {
+    const prev = path[index - 1];
+    if (prev.row < cell.row) connections.push("up");
+    if (prev.row > cell.row) connections.push("down");
+    if (prev.col < cell.col) connections.push("left");
+    if (prev.col > cell.col) connections.push("right");
+  }
+  if (index < path.length - 1) {
+    const next = path[index + 1];
+    if (next.row < cell.row) connections.push("up");
+    if (next.row > cell.row) connections.push("down");
+    if (next.col < cell.col) connections.push("left");
+    if (next.col > cell.col) connections.push("right");
+  }
+  return connections;
+}
+
+export function getTrackPath(connections: string[]): string {
+  const key = [...connections].sort().join("-");
+  switch (key) {
+    case "down-up":
+      return "M50,0 L50,100";
+    case "left-right":
+      return "M0,50 L100,50";
+    case "down-left":
+      return "M0,50 Q50,50 50,100";
+    case "down-right":
+      return "M100,50 Q50,50 50,100";
+    case "left-up":
+      return "M0,50 Q50,50 50,0";
+    case "right-up":
+      return "M100,50 Q50,50 50,0";
+    case "up":
+      return "M50,100 L50,0";
+    case "down":
+      return "M50,0 L50,100";
+    case "left":
+      return "M100,50 L0,50";
+    case "right":
+      return "M0,50 L100,50";
+
+    default:
+      return "";
+  }
+}
 
 export const getInitialState = (
   playerIds: PlayerId[],
@@ -19,10 +77,39 @@ export const getInitialState = (
     playerStates[playerId] = {
       id: playerId,
       fixedTrainId: fixedTrainForAllPlayers?.trainId ?? null,
-      gridState: null,
       submitted: false,
       submissionResult: null,
+      submittedGrid: null,
     };
+  });
+
+  const solutionGrid: GridState = Array(puzzle.grid.rows)
+    .fill(null)
+    .map(() => Array(puzzle.grid.columns).fill(null));
+
+  puzzle.tracks.forEach((track) => {
+    track.path.forEach((cell) => {
+      if (!solutionGrid[cell.row][cell.col]) {
+        solutionGrid[cell.row][cell.col] = [];
+      }
+      (solutionGrid[cell.row][cell.col] as GridCell).push({
+        trackId: track.trackId,
+        color: track.color,
+        connections: getConnections(cell, track.path),
+      });
+    });
+  });
+
+  puzzle.trains.forEach((train) => {
+    train.carPositions.forEach((cell) => {
+      const isFixed = train.trainId === fixedTrainForAllPlayers?.trainId;
+      if (!solutionGrid[cell.row][cell.col]) {
+        solutionGrid[cell.row][cell.col] = [];
+      }
+      (solutionGrid[cell.row][cell.col] as GridCell).push(
+        isFixed ? { isFixedTrain: true } : { isUserPlacedTrain: true }
+      );
+    });
   });
 
   return {
@@ -30,6 +117,7 @@ export const getInitialState = (
     playerStates,
     winner: null,
     options: { difficulty },
+    solution: JSON.stringify(solutionGrid),
   };
 };
 
@@ -52,6 +140,7 @@ export const handleAction = (currentState: BrainTrainGameState, action: BrainTra
         ...currentState.playerStates[action.playerId],
         submitted: true,
         submissionResult: isCorrect ? "correct" : "incorrect",
+        submittedGrid: JSON.stringify(playerGridState),
       };
 
       const newPlayerStates = {

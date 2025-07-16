@@ -42,9 +42,9 @@ export type GridState = (GridCell | null)[][];
 export interface PlayerState {
   id: PlayerId;
   fixedTrainId: number | null;
-  gridState: GridState | null;
   submitted: boolean;
   submissionResult: "correct" | "incorrect" | null;
+  submittedGrid: string | null;
 }
 
 export interface BrainTrainGameState {
@@ -54,6 +54,7 @@ export interface BrainTrainGameState {
   options: {
     difficulty: Difficulty;
   };
+  solution: string;
 }
 
 export type SubmitSolutionAction = GameAction & {

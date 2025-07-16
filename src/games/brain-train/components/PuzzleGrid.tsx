@@ -1,6 +1,7 @@
 import React, { memo } from "react";
 import type { BrainTrainPuzzle, GridState, GridCell } from "../types";
 import { X } from "lucide-react";
+import { getTrackPath } from "../logic";
 
 interface PuzzleGridProps {
   puzzle: BrainTrainPuzzle;
@@ -120,35 +121,6 @@ function renderCellContent(cell: GridCell | null) {
       )}
     </>
   );
-}
-
-function getTrackPath(connections: string[]): string {
-  const key = connections.sort().join("-");
-  switch (key) {
-    case "down-up":
-      return "M50,0 L50,100";
-    case "left-right":
-      return "M0,50 L100,50";
-    case "down-left":
-      return "M0,50 Q50,50 50,100";
-    case "down-right":
-      return "M100,50 Q50,50 50,100";
-    case "left-up":
-      return "M0,50 Q50,50 50,0";
-    case "right-up":
-      return "M100,50 Q50,50 50,0";
-    case "up":
-      return "M50,100 L50,0";
-    case "down":
-      return "M50,0 L50,100";
-    case "left":
-      return "M100,50 L0,50";
-    case "right":
-      return "M0,50 L100,50";
-
-    default:
-      return "";
-  }
 }
 
 export const PuzzleGrid = memo(MemoizedPuzzleGrid);
