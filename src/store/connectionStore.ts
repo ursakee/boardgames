@@ -27,6 +27,7 @@ interface ConnectionStateStore {
   processedCandidates: Map<PlayerId, Set<string>>;
   onMessageCallback: (message: GameMessage, fromPlayerId: PlayerId) => void;
   unsubscribes: Unsubscribe[];
+  messageQueues: Map<PlayerId, GameMessage[]>;
   initAsHost: (gameId: string) => void;
   initAsGuest: (gameId: string, selfId: PlayerId, hostId: PlayerId) => void;
   initiateConnectionForGuest: (guestId: PlayerId) => Promise<void>;
@@ -88,6 +89,18 @@ const _createPeerConnection = (
   const setupDataChannel = (channel: RTCDataChannel) => {
     channel.onopen = () => {
       useGameStore.getState().handlePlayerConnect(peerId);
+
+      // Process any queued messages for this player
+      const queue = get().messageQueues.get(peerId);
+      if (queue && queue.length > 0) {
+        queue.forEach((message) => {
+          channel.send(JSON.stringify(message));
+        });
+        // Clear the queue after sending
+        set((state) => {
+          state.messageQueues.delete(peerId);
+        });
+      }
     };
     channel.onmessage = (event) => {
       get().onMessageCallback(JSON.parse(event.data), peerId);
@@ -117,6 +130,7 @@ export const useConnectionStore = create(
     peerConnections: new Map(),
     dataChannels: new Map(),
     peerConnectionStates: new Map(),
+    messageQueues: new Map(),
     processedCandidates: new Map(),
     onMessageCallback: () => {},
     unsubscribes: [],
@@ -219,20 +233,30 @@ export const useConnectionStore = create(
 
     broadcastMessage: (message: GameMessage) => {
       const { dataChannels } = get();
-      const msgString = JSON.stringify(message);
-      dataChannels.forEach((channel) => {
-        if (channel.readyState === "open") channel.send(msgString);
+      dataChannels.forEach((_channel, guestId) => {
+        get().sendMessageToGuest(guestId, message);
       });
     },
+
     sendMessageToHost: (message: GameMessage) => {
       const { dataChannels } = get();
       const hostChannel = Array.from(dataChannels.values())[0];
       if (hostChannel?.readyState === "open") hostChannel.send(JSON.stringify(message));
     },
+
     sendMessageToGuest: (guestId: PlayerId, message: GameMessage) => {
-      const { dataChannels } = get();
-      const guestChannel = dataChannels.get(guestId);
-      if (guestChannel?.readyState === "open") guestChannel.send(JSON.stringify(message));
+      const { dataChannels, messageQueues } = get();
+      const channel = dataChannels.get(guestId);
+
+      if (channel?.readyState === "open") {
+        channel.send(JSON.stringify(message));
+      } else {
+        const queue = messageQueues.get(guestId) || [];
+        queue.push(message);
+        set((state) => {
+          state.messageQueues.set(guestId, queue);
+        });
+      }
     },
 
     leaveSession: async () => {
@@ -247,6 +271,7 @@ export const useConnectionStore = create(
         state.peerConnections.clear();
         state.dataChannels.clear();
         state.peerConnectionStates.clear();
+        state.messageQueues.clear();
         state.processedCandidates.clear();
         state.unsubscribes = [];
       });
