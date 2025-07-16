@@ -38,7 +38,14 @@ interface ConnectionStateStore {
 }
 
 const servers = {
-  iceServers: [{ urls: ["stun:stun1.l.google.com:19302", "stun:stun2.l.google.com:19302"] }],
+  iceServers: [
+    { urls: ["stun:stun1.l.google.com:19302", "stun:stun2.l.google.com:19302"] },
+    {
+      urls: import.meta.env.VITE_TURN_API,
+      username: import.meta.env.VITE_TURN_USERNAME,
+      credential: import.meta.env.VITE_TURN_PASSWORD,
+    },
+  ],
   iceCandidatePoolSize: 10,
 };
 
