@@ -1,4 +1,4 @@
-import{c as t,a as b,d as L,r as s,f as j}from"./index-CtSHnUiN.js";/**
+import{c as t,a as b,e as L,r as s,f as j}from"./index-B37KDAax.js";/**
  * @license lucide-react v0.525.0 - ISC
  *
  * This source code is licensed under the ISC license.
@@ -13,4 +13,4 @@ import{c as t,a as b,d as L,r as s,f as j}from"./index-CtSHnUiN.js";/**
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
- */const H=[["polygon",{points:"6 3 20 12 6 21 6 3",key:"1oa8hb"}]],z=t("play",H),A=()=>{const{gameId:n,gameName:e,playerId:a,players:o,gamePhase:r,gameState:m,gameOptions:c,createGame:d,joinGame:i,leaveGame:p,notifyLeave:y,setMyUsername:h,setGameOptions:k,performAction:l,startGame:u,returnToLobby:g,resetSession:v}=b(),{isHost:M,peerConnectionStates:f}=L(),G=s.useMemo(()=>j(e||void 0),[e]),S=s.useMemo(()=>o.find(_=>_.id===a),[o,a]);return{gameId:n,gameName:e,gameInfo:G,playerId:a,players:o,gamePhase:r,gameState:m,gameOptions:c,isHost:M,peerConnectionStates:f,localPlayer:S,createGame:d,joinGame:i,leaveGame:p,notifyLeave:y,setMyUsername:h,setGameOptions:k,performAction:l,startGame:u,returnToLobby:g,resetSession:v}};export{N as H,P as L,z as P,A as u};
+ */const H=[["polygon",{points:"6 3 20 12 6 21 6 3",key:"1oa8hb"}]],z=t("play",H),A=()=>{const{gameId:n,gameName:e,playerId:a,players:o,gamePhase:r,gameState:m,gameOptions:c,createGame:i,joinGame:d,leaveGame:p,notifyLeave:y,setMyUsername:h,setGameOptions:k,performAction:l,startGame:u,returnToLobby:g,resetSession:v}=b(),{isHost:M,peerConnectionStates:f}=L(),G=s.useMemo(()=>j(e||void 0),[e]),S=s.useMemo(()=>o.find(_=>_.id===a),[o,a]);return{gameId:n,gameName:e,gameInfo:G,playerId:a,players:o,gamePhase:r,gameState:m,gameOptions:c,isHost:M,peerConnectionStates:f,localPlayer:S,createGame:i,joinGame:d,leaveGame:p,notifyLeave:y,setMyUsername:h,setGameOptions:k,performAction:l,startGame:u,returnToLobby:g,resetSession:v}};export{N as H,P as L,z as P,A as u};
