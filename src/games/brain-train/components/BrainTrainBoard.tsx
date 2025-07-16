@@ -1,12 +1,33 @@
 import React, { useState, useEffect } from "react";
 import type { GameBoardComponentProps } from "../../../types";
-import type { BrainTrainGameState, GridState, BrainTrainAction } from "../types";
+import type { BrainTrainGameState, GridState, BrainTrainAction, Position, GridCell } from "../types";
 import { PuzzleGrid } from "./PuzzleGrid";
 import { TrainCars } from "./TrainCars";
 import { Loader, Play, Home, Settings, XCircle } from "lucide-react";
 import { useGameSession } from "../../../hooks/useGameSession";
 
 type BrainTrainBoardProps = GameBoardComponentProps<BrainTrainGameState, BrainTrainAction>;
+
+function getConnections(cell: Position, path: Position[]): string[] {
+  const index = path.findIndex((p) => p.row === cell.row && p.col === cell.col);
+  if (index === -1) return [];
+  const connections: string[] = [];
+  if (index > 0) {
+    const prev = path[index - 1];
+    if (prev.row < cell.row) connections.push("up");
+    if (prev.row > cell.row) connections.push("down");
+    if (prev.col < cell.col) connections.push("left");
+    if (prev.col > cell.col) connections.push("right");
+  }
+  if (index < path.length - 1) {
+    const next = path[index + 1];
+    if (next.row < cell.row) connections.push("up");
+    if (next.row > cell.row) connections.push("down");
+    if (next.col < cell.col) connections.push("left");
+    if (next.col > cell.col) connections.push("right");
+  }
+  return connections;
+}
 
 const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver, onPerformAction, onLeaveGame }) => {
   const { localPlayer, isHost, startGame, gameOptions, setGameOptions, gameInfo, returnToLobby } = useGameSession();
@@ -18,12 +39,31 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver
 
   useEffect(() => {
     if (puzzle && localPlayerState && !gridState) {
-      const newGridState = Array(puzzle.grid.rows)
+      const newGridState: GridState = Array(puzzle.grid.rows)
         .fill(null)
         .map(() => Array(puzzle.grid.columns).fill(null));
+
+      puzzle.tracks.forEach((track) => {
+        track.path.forEach((cell) => {
+          if (!newGridState[cell.row][cell.col]) newGridState[cell.row][cell.col] = [];
+          (newGridState[cell.row][cell.col] as GridCell).push({
+            trackId: track.trackId,
+            color: track.color,
+            connections: getConnections(cell, track.path),
+          });
+        });
+      });
+
+      const fixedTrain = puzzle.trains.find((train) => train.trainId === localPlayerState.fixedTrainId);
+      if (fixedTrain) {
+        fixedTrain.carPositions.forEach((cell) => {
+          if (!newGridState[cell.row][cell.col]) newGridState[cell.row][cell.col] = [];
+          (newGridState[cell.row][cell.col] as GridCell).push({ isFixedTrain: true });
+        });
+      }
       setGridState(newGridState);
     }
-  }, [puzzle, localPlayerState, gridState, setGridState]);
+  }, [puzzle, localPlayerState, gridState]);
 
   const handleSubmit = () => {
     if (gridState && !localPlayerState?.submitted) {

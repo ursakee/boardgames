@@ -1,5 +1,5 @@
-import React, { useEffect, memo } from "react";
-import type { BrainTrainPuzzle, GridState, GridCell, Position } from "../types";
+import React, { memo } from "react";
+import type { BrainTrainPuzzle, GridState, GridCell } from "../types";
 import { X } from "lucide-react";
 
 interface PuzzleGridProps {
@@ -10,39 +10,8 @@ interface PuzzleGridProps {
   isInteractable: boolean;
 }
 
-const MemoizedPuzzleGrid: React.FC<PuzzleGridProps> = ({
-  puzzle,
-  gridState,
-  setGridState,
-  fixedTrainId,
-  isInteractable,
-}) => {
-  const { grid, tracks, clues, trains } = puzzle;
-
-  useEffect(() => {
-    const newGridState: GridState = Array(grid.rows)
-      .fill(null)
-      .map(() => Array(grid.columns).fill(null));
-    tracks.forEach((track) => {
-      track.path.forEach((cell) => {
-        if (!newGridState[cell.row][cell.col]) newGridState[cell.row][cell.col] = [];
-        newGridState[cell.row][cell.col]!.push({
-          trackId: track.trackId,
-          color: track.color,
-          connections: getConnections(cell, track.path),
-        });
-      });
-    });
-
-    const fixedTrain = trains.find((train) => train.trainId === fixedTrainId);
-    if (fixedTrain) {
-      fixedTrain.carPositions.forEach((cell) => {
-        if (!newGridState[cell.row][cell.col]) newGridState[cell.row][cell.col] = [];
-        newGridState[cell.row][cell.col]!.push({ isFixedTrain: true });
-      });
-    }
-    setGridState(newGridState);
-  }, [puzzle]);
+const MemoizedPuzzleGrid: React.FC<PuzzleGridProps> = ({ puzzle, gridState, setGridState, isInteractable }) => {
+  const { clues } = puzzle;
 
   const handleLeftClick = (row: number, col: number) => {
     if (!isInteractable) return;
@@ -151,27 +120,6 @@ function renderCellContent(cell: GridCell | null) {
       )}
     </>
   );
-}
-
-function getConnections(cell: Position, path: Position[]): string[] {
-  const index = path.findIndex((p) => p.row === cell.row && p.col === cell.col);
-  if (index === -1) return [];
-  const connections: string[] = [];
-  if (index > 0) {
-    const prev = path[index - 1];
-    if (prev.row < cell.row) connections.push("up");
-    if (prev.row > cell.row) connections.push("down");
-    if (prev.col < cell.col) connections.push("left");
-    if (prev.col > cell.col) connections.push("right");
-  }
-  if (index < path.length - 1) {
-    const next = path[index + 1];
-    if (next.row < cell.row) connections.push("up");
-    if (next.row > cell.row) connections.push("down");
-    if (next.col < cell.col) connections.push("left");
-    if (next.col > cell.col) connections.push("right");
-  }
-  return connections;
 }
 
 function getTrackPath(connections: string[]): string {
