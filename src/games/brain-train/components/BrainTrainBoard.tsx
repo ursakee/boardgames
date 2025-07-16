@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import type { GameBoardComponentProps } from "../../../types";
 import type { BrainTrainGameState, GridState, BrainTrainAction, Position, GridCell } from "../types";
 import { PuzzleGrid } from "./PuzzleGrid";
@@ -37,8 +37,13 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver
 
   const [gridState, setGridState] = useState<GridState | null>(null);
 
+  const puzzleKey = useMemo(() => {
+    if (!puzzle) return null;
+    return JSON.stringify(puzzle.tracks);
+  }, [puzzle]);
+
   useEffect(() => {
-    if (puzzle && localPlayerState && !gridState) {
+    if (puzzle && localPlayerState) {
       const newGridState: GridState = Array(puzzle.grid.rows)
         .fill(null)
         .map(() => Array(puzzle.grid.columns).fill(null));
@@ -63,7 +68,7 @@ const BrainTrainBoard: React.FC<BrainTrainBoardProps> = ({ gameState, isGameOver
       }
       setGridState(newGridState);
     }
-  }, [puzzle, localPlayerState, gridState]);
+  }, [puzzleKey, localPlayerState?.fixedTrainId]);
 
   const handleSubmit = () => {
     if (gridState && !localPlayerState?.submitted) {

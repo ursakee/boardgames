@@ -48,10 +48,16 @@ export const handleAction = (currentState: BrainTrainGameState, action: BrainTra
       const playerGridState = action.payload;
       const isCorrect = validateSolution(playerGridState, currentState.puzzle);
 
-      const newPlayerStates = JSON.parse(JSON.stringify(currentState.playerStates));
-      const playerState = newPlayerStates[action.playerId];
-      playerState.submitted = true;
-      playerState.submissionResult = isCorrect ? "correct" : "incorrect";
+      const updatedPlayerState: PlayerState = {
+        ...currentState.playerStates[action.playerId],
+        submitted: true,
+        submissionResult: isCorrect ? "correct" : "incorrect",
+      };
+
+      const newPlayerStates = {
+        ...currentState.playerStates,
+        [action.playerId]: updatedPlayerState,
+      };
 
       let winner: BrainTrainGameState["winner"] = currentState.winner;
       if (isCorrect) {
