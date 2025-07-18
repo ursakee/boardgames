@@ -1,6 +1,6 @@
 import React from "react";
 import type { BrainTrainPuzzle, GridState, GridCell } from "../types";
-import { ArrowLeft, X, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeft, X, XCircle, CircleQuestionMark } from "lucide-react";
 import { getTrackPath } from "../logic";
 
 function renderCellContent(cell: GridCell | null) {
@@ -93,8 +93,8 @@ const GridDisplay: React.FC<GridDisplayProps> = ({ title, puzzle, gridState, com
                       )}
 
                       {mistakeType === "missed" && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-green-500/40">
-                          <CheckCircle2 className="text-green-300" size={24} />
+                        <div className="absolute inset-0 flex items-center justify-center bg-yellow-500/30">
+                          <CircleQuestionMark className="text-yellow-200" size={24} />
                         </div>
                       )}
                     </td>
@@ -128,7 +128,7 @@ const MistakesViewer: React.FC<MistakesViewerProps> = ({ puzzle, playerGrid, sol
           </div>
 
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="text-green-300" size={18} /> Missed Placement
+            <CircleQuestionMark className="text-yellow-300" size={18} /> Missed Placement
           </div>
         </div>
       </div>
